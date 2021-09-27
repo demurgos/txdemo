@@ -13,34 +13,81 @@ pub enum WithdrawalDisputePolicy {
     IfMoreAvailableThanDisputed,
 }
 
+/// In-memory account service.
+///
+/// This is the main component of this module, it maintains the current
+/// state of the accounts and can be updated by submitting commands.
+///
+/// # Example
+///
+/// ```
+/// use txdemo::account::mem::{MemAccountService, WithdrawalDisputePolicy};
+/// use txdemo::core::{cmd, ClientId, TransactionMeta, TransactionId, Account, AccountBalance};
+///
+/// let mut service = MemAccountService::default();
+///
+/// service.submit_deposit(cmd::Deposit(TransactionMeta {
+///     id: TransactionId::new(1),
+///     client: ClientId::new(1),
+///     amount: "1.2345".parse().unwrap(),
+/// })).unwrap();
+///
+/// service.submit_deposit(cmd::Deposit(TransactionMeta {
+///     id: TransactionId::new(2),
+///     client: ClientId::new(1),
+///     amount: "1.1111".parse().unwrap(),
+/// })).unwrap();
+///
+/// // ... submit more commands
+///
+/// let accounts: Vec<_> = service.get_all_accounts().collect();
+/// let expected = vec![
+///     Account {
+///         client: ClientId::new(1),
+///         locked: false,
+///         balance: AccountBalance::new_with("2.3456".parse().unwrap(), "0".parse().unwrap()).unwrap(),
+///     }
+/// ];
+/// assert_eq!(accounts, expected);
+/// ```
 pub struct MemAccountService {
-    withdrawal_dispute_policy: WithdrawalDisputePolicy,
-    /// All the processed transactions
+    /// Policy to use for withdrawal disputes.
     ///
-    /// ## Invariants
+    /// See [WithdrawalDisputePolicy]
+    withdrawal_dispute_policy: WithdrawalDisputePolicy,
+    /// All the received transactions.
+    ///
+    /// If multiple transactions with the same id are submitted, only the first
+    /// one is stored.
+    ///
+    /// ## Invariant
     ///
     /// The id of the transaction matches the corresponding key in the hashmap.
-    ///
-    /// ```
-    /// let tx = self.transactions.get(tx_id);
-    /// if let Some(tx) = tx {
-    ///     assert_eq!(tx.id, tx_id);
-    /// }
-    /// ```
     transactions: HashMap<TransactionId, TransactionWithState>,
+    /// All the known accounts
+    ///
+    /// Accounts are created automatically with an empty balance when first
+    /// referenced.
+    ///
+    /// ## Invariant
+    ///
+    /// The id of the account matches the corresponding key in the hashmap.
     accounts: HashMap<ClientId, MemAccount>,
 }
 
-/// A transaction with its associated current state.
+/// A transaction with its current state.
 ///
 /// See [TransactionState] for the possibile states and their meaning.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 struct TransactionWithState {
+    /// Transaction options
     tx: Transaction,
+    /// Current state of the transaction. See [TransactionState].
     state: TransactionState,
 }
 
 impl TransactionWithState {
+    /// Create a new [TransactionWithState] starting in the `Valid` state.
     pub const fn valid(tx: Transaction) -> Self {
         Self {
             tx,
@@ -48,6 +95,7 @@ impl TransactionWithState {
         }
     }
 
+    /// Create a new [TransactionWithState] starting in the `Rejected` state.
     pub const fn rejected(tx: Transaction) -> Self {
         Self {
             tx,
@@ -56,6 +104,7 @@ impl TransactionWithState {
     }
 }
 
+/// The current state of a transaction.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum TransactionState {
     /// The transaction is currently valid and its effect is realized.
@@ -76,6 +125,7 @@ enum TransactionState {
     Rejected,
 }
 
+/// An
 struct MemAccount {
     id: ClientId,
     locked: bool,

@@ -4,6 +4,7 @@ use crate::core::fixed_decimal::FixedDecimal;
 use serde::{Deserialize, Serialize};
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
+use std::str::FromStr;
 use thiserror::Error;
 
 /// Clients are only referenced through their id, a valid `u16`.
@@ -15,6 +16,12 @@ use thiserror::Error;
 /// accounts and clients).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize, Serialize)]
 pub struct ClientId(u16);
+
+impl ClientId {
+    pub const fn new(id: u16) -> Self {
+        Self(id)
+    }
+}
 
 impl fmt::Display for ClientId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -29,6 +36,12 @@ impl fmt::Display for ClientId {
 /// in this case both transactions must be deeply equal.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize, Serialize)]
 pub struct TransactionId(u32);
+
+impl TransactionId {
+    pub const fn new(id: u32) -> Self {
+        Self(id)
+    }
+}
 
 impl fmt::Display for TransactionId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -67,6 +80,14 @@ impl fmt::Display for UnsignedAssetCount {
     }
 }
 
+impl FromStr for UnsignedAssetCount {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.parse().map_err(drop)?))
+    }
+}
+
 #[derive(
     Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Default, Deserialize, Serialize,
 )]
@@ -89,6 +110,14 @@ impl SignedAssetCount {
 impl fmt::Display for SignedAssetCount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
+    }
+}
+
+impl FromStr for SignedAssetCount {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.parse().map_err(drop)?))
     }
 }
 
@@ -207,11 +236,22 @@ pub struct AccountBalance {
 pub struct BalanceUpdateError;
 
 impl AccountBalance {
+    /// Create a new empty account balance.
     pub fn new() -> Self {
         Self {
             available: UnsignedAssetCount::default(),
             held: UnsignedAssetCount::default(),
         }
+    }
+
+    /// Create a new empty account balance.
+    pub fn new_with(
+        available: UnsignedAssetCount,
+        held: UnsignedAssetCount,
+    ) -> Result<Self, BalanceUpdateError> {
+        let mut balance = Self::new();
+        balance.update(available, held)?;
+        Ok(balance)
     }
 
     /// Get the current available (non-disputed) amount of currency

@@ -206,6 +206,16 @@ to further investigate the situation. If it turns out that this was a fraud,
 the account will still have the refunded assets so no abuse is possible
 this way.
 
+## Commands
+
+Besides `cargo run`, the following commands are relevant to this project:
+
+## Test
+
+```
+cargo test
+```
+
 # License
 
 [AGPL-3.0-or-later](./LICENSE.md)
