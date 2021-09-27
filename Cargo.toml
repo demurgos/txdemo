@@ -1,0 +1,15 @@
+[package]
+name = "txdemo"
+version = "0.1.0"
+edition = "2018"
+authors = ["Charles Samborski <demurgos@demurgos.net> (https://demurgos.net)"]
+description = "Small Rust CLI application showcasing a minimal transaction processing service."
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+clap = "3.0.0-beta.4"
+csv = "1.1.6"
+num = "0.4.0"
+serde = { version = "1.0.130", features = ["derive"] }
+test-generator = "0.3.0"
+thiserror = "1.0.29"

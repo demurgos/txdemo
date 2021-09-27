@@ -1,0 +1,11 @@
+# This project uses _rustfmt_ to format its code.
+#
+# You can install it with the following command:
+# ```
+# rustup component add rustfmt
+# ```
+#
+# You can run it with the following command:
+# ```
+# cargo fmt --all
+# ```
