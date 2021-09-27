@@ -128,72 +128,68 @@ impl MemAccountService {
 
     pub fn submit_deposit(&mut self, cmd: cmd::Deposit) -> Result<(), DepositError> {
         let cmd = cmd.0;
-        let tx = cmd.to_deposit_tx();
-        let tx_entry = self.transactions.entry(cmd.id);
-        let tx_entry = match tx_entry {
-            Entry::Occupied(tx_entry) => {
-                return if tx_entry.get().tx != tx {
-                    Err(DepositError::TransactionIdConflict)
-                } else {
-                    // Same id, with same fields (probably an idempotent retry, ignore)
-                    Ok(())
-                };
-            }
-            Entry::Vacant(tx_entry) => tx_entry,
-        };
-
+        let tx = cmd.to_withdrawal_tx();
         let account = upsert_account(&mut self.accounts, cmd.client);
-        if account.locked {
-            return Err(DepositError::Locked);
-        };
-        let amount = cmd
-            .amount
-            .to_signed()
-            .map_err(|_| DepositError::BalanceUpdateError)?;
-        account
-            .balance
-            .inc_available(amount)
-            .map_err(|_| DepositError::BalanceUpdateError)?;
-        tx_entry.insert(TransactionWithState::valid(tx));
-        Ok(())
+        let res = upsert_tx(
+            &mut self.transactions,
+            tx,
+            || -> Result<(), DepositError> {
+                if account.locked {
+                    return Err(DepositError::Locked);
+                };
+
+                let amount = cmd
+                    .amount
+                    .to_signed()
+                    .map_err(|_| DepositError::BalanceUpdateError)?;
+
+                account
+                    .balance
+                    .inc_available(amount)
+                    .map_err(|_| DepositError::BalanceUpdateError)?;
+                Ok(())
+            },
+        );
+
+        res.map_err(|e| match e {
+            UpsertTxError::Conflict => DepositError::TransactionIdConflict,
+            UpsertTxError::Custom(e) => e,
+        })
     }
 
     pub fn submit_withdrawal(&mut self, cmd: cmd::Withdrawal) -> Result<(), WithdrawalError> {
         let cmd = cmd.0;
         let tx = cmd.to_withdrawal_tx();
-        let tx_entry = self.transactions.entry(cmd.id);
-        let tx_entry = match tx_entry {
-            Entry::Occupied(tx_entry) => {
-                return if tx_entry.get().tx != tx {
-                    Err(WithdrawalError::TransactionIdConflict)
-                } else {
-                    // Same id, with same fields (probably an idempotent retry, ignore)
-                    Ok(())
-                };
-            }
-            Entry::Vacant(tx_entry) => tx_entry,
-        };
-
         let account = upsert_account(&mut self.accounts, cmd.client);
-        if account.locked {
-            tx_entry.insert(TransactionWithState::rejected(tx));
-            return Err(WithdrawalError::Locked);
-        };
-        let amount = cmd
-            .amount
-            .to_signed()
-            .map_err(|_| WithdrawalError::BalanceUpdateError)?;
-        if account.balance.available() < amount {
-            tx_entry.insert(TransactionWithState::rejected(tx));
-            return Err(WithdrawalError::InsufficientAssets);
-        }
+        let res = upsert_tx(
+            &mut self.transactions,
+            tx,
+            || -> Result<(), WithdrawalError> {
+                if account.locked {
+                    return Err(WithdrawalError::Locked);
+                };
 
-        account
-            .balance
-            .dec_available(amount)
-            .map_err(|_| WithdrawalError::BalanceUpdateError)?;
-        tx_entry.insert(TransactionWithState::valid(tx));
-        Ok(())
+                let amount = cmd
+                    .amount
+                    .to_signed()
+                    .map_err(|_| WithdrawalError::BalanceUpdateError)?;
+
+                if account.balance.available() < amount {
+                    return Err(WithdrawalError::InsufficientAssets);
+                }
+
+                account
+                    .balance
+                    .dec_available(amount)
+                    .map_err(|_| WithdrawalError::BalanceUpdateError)?;
+                Ok(())
+            },
+        );
+
+        res.map_err(|e| match e {
+            UpsertTxError::Conflict => WithdrawalError::TransactionIdConflict,
+            UpsertTxError::Custom(e) => e,
+        })
     }
 
     pub fn get_all_accounts(&self) -> MemAccountIter {
@@ -210,6 +206,53 @@ fn upsert_account(
     accounts
         .entry(client)
         .or_insert_with(|| MemAccount::new(client))
+}
+
+enum UpsertTxError<E> {
+    /// The transaction already exists and does not match the previous value.
+    Conflict,
+    /// The handler failed with a custom error.
+    Custom(E),
+}
+
+/// Create a transaction with the provided handler, it it does not already exist.
+///
+/// If the transaction already exists, the callback is not called and
+/// `with_tx` only checks that the transaction matches.
+///
+/// If the transaction is new, execute the handler. If the handler succeeds,
+/// the transaction is marked as valid; otherwise it is rejected.
+fn upsert_tx<F, E>(
+    transactions: &mut HashMap<TransactionId, TransactionWithState>,
+    tx: Transaction,
+    handler: F,
+) -> Result<(), UpsertTxError<E>>
+where
+    F: FnOnce() -> Result<(), E>,
+{
+    let tx_entry = transactions.entry(tx.id());
+    let tx_entry = match tx_entry {
+        Entry::Occupied(tx_entry) => {
+            return if tx_entry.get().tx != tx {
+                Err(UpsertTxError::Conflict)
+            } else {
+                // Same id, with same fields (probably an idempotent retry, ignore)
+                Ok(())
+            };
+        }
+        Entry::Vacant(tx_entry) => tx_entry,
+    };
+    let handler_res = handler();
+    match handler_res {
+        Ok(()) => {
+            tx_entry.insert(TransactionWithState::valid(tx));
+            Ok(())
+        }
+        Err(e) => {
+            tx_entry.insert(TransactionWithState::rejected(tx));
+            Err(UpsertTxError::Custom(e))
+        }
+    }
 }
 
 impl Default for MemAccountService {
