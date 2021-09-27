@@ -206,14 +206,55 @@ to further investigate the situation. If it turns out that this was a fraud,
 the account will still have the refunded assets so no abuse is possible
 this way.
 
-## Commands
+## Project management
 
-Besides `cargo run`, the following commands are relevant to this project:
+Besides `cargo run`, the following commands are relevant to this project.
+This repository is configured to run most checks in CI.
 
 ## Test
 
 ```
 cargo test
+```
+
+## Test with coverage
+
+On Linux, install [Tarpaulin](https://github.com/xd009642/tarpaulin) and run the
+following command:
+
+```
+cargo tarpaulin
+```
+
+## Format code
+
+Make sure you enabled the `rustmt` component on your toolchain, then run:
+
+```
+cargo fmt --all
+```
+
+To only check the code, use:
+
+```
+cargo fmt --all -- --check
+```
+
+## Lint
+
+Make sure you enabled the `clippy` component on your toolchain, then run:
+
+```
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
+## Audit
+
+This project is checked with [cargo-audit](https://github.com/RustSec/rustsec/tree/main/cargo-audit).
+You can run the check yourself with:
+
+```
+cargo audit
 ```
 
 # License
