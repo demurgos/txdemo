@@ -19,39 +19,61 @@ pub struct CliArgs {
     sort: bool,
 }
 
-pub fn run<Args, Arg, Stdin, Stdout>(
+pub fn run<Args, Arg, Stdin, Stdout, Stderr>(
     args: Args,
     stdin: Stdin,
     stdout: Stdout,
+    stderr: Stderr,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     Args: IntoIterator<Item = Arg>,
     Arg: Into<OsString> + Clone,
     Stdin: io::Read,
     Stdout: io::Write,
+    Stderr: io::Write,
 {
     let args = CliArgs::try_parse_from(args)?;
     let sort = args.sort;
     return match args.input.as_deref() {
-        None => with_io(sort, stdin, stdout),
+        None => with_io(sort, stdin, stdout, stderr),
         Some(file) => {
             let file = File::open(file).expect("FailedToOpenInputFile");
-            with_io(sort, file, stdout)
+            with_io(sort, file, stdout, stderr)
         }
     };
 
-    fn with_io<Input: io::Read, Output: std::io::Write>(
+    fn with_io<Input: io::Read, Output: io::Write, ErrOutput: io::Write>(
         sort: bool,
         input: Input,
         output: Output,
+        mut err_output: ErrOutput,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut csv_reader = CsvCommandReader::from_reader(input);
         let mut csv_writer = CsvAccountWriter::from_writer(output);
         let mut account_service = MemAccountService::new();
-        for cmd in csv_reader.commands() {
+        for (idx, cmd) in csv_reader.commands().enumerate() {
             let cmd = cmd?;
-            account_service.submit(cmd)?;
-            // dbg!(cmd);
+            match account_service.submit(cmd) {
+                Ok(()) => {}
+                Err(e) => {
+                    writeln!(
+                        err_output,
+                        "Command #{} (line {}) failed:",
+                        idx + 1,
+                        idx + 2
+                    )
+                    .expect("failed to log error");
+                    let mut e: &(dyn std::error::Error + 'static) = &e;
+                    loop {
+                        writeln!(err_output, "- {}", e).expect("failed to log error");
+                        if let Some(cause) = e.source() {
+                            e = cause;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            };
         }
         let accounts = account_service.get_all_accounts();
         if sort {
@@ -80,16 +102,24 @@ mod test {
         let input_path = test_item_dir.join("input.csv");
         let expected_path = test_item_dir.join("expected.csv");
         let actual_path = test_item_dir.join("actual.csv");
+        let errors_path = test_item_dir.join("errors.log");
 
         let args = vec!["txdemo", "--sort"];
         let stdio = File::open(input_path).expect("FailedToOpenInputFile");
         let stdout = fs::OpenOptions::new()
             .create(true)
+            .truncate(true)
             .write(true)
             .open(actual_path.as_path())
             .expect("FailedToOpenActualFile");
+        let stderr = fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(errors_path.as_path())
+            .expect("FailedToOpenErrorsFile");
 
-        run(args, stdio, stdout).expect("runShouldSucceed");
+        run(args, stdio, stdout, stderr).expect("runShouldSucceed");
 
         let actual = fs::read_to_string(actual_path).expect("FailedToReadActualFile");
         let expected = fs::read_to_string(expected_path).expect("FailedToReadExpectedFile");
