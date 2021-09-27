@@ -16,6 +16,12 @@ use thiserror::Error;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize, Serialize)]
 pub struct ClientId(u16);
 
+impl fmt::Display for ClientId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// Globally unique transaction id for deposits and withdrawals.
 ///
 /// The transaction id is defined by the caller service and must be unique.
@@ -23,6 +29,12 @@ pub struct ClientId(u16);
 /// in this case both transactions must be deeply equal.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Deserialize, Serialize)]
 pub struct TransactionId(u32);
+
+impl fmt::Display for TransactionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
 
 #[derive(
     Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Default, Deserialize, Serialize,
@@ -135,6 +147,14 @@ impl Transaction {
         self.meta().id
     }
 
+    pub const fn client(&self) -> ClientId {
+        self.meta().client
+    }
+
+    pub const fn amount(&self) -> UnsignedCurrencyAmount {
+        self.meta().amount
+    }
+
     const fn meta(&self) -> &TransactionMeta {
         match self {
             Self::Deposit(ref tx) => tx,
@@ -202,39 +222,56 @@ impl AccountBalance {
     /// Increment the `available` value by the provided amount
     ///
     /// Errors if the update causes an underflow/overflow
+    ///
+    /// This update is atomic.
     pub fn inc_available(
         &mut self,
         amount: SignedCurrencyAmount,
     ) -> Result<(), BalanceUpdateError> {
-        self.available = self
+        let new_availabe = self
             .available
             .checked_add(amount)
             .ok_or(BalanceUpdateError)?;
-        self.total = self.total.checked_add(amount).ok_or(BalanceUpdateError)?;
+        let new_total = self.total.checked_add(amount).ok_or(BalanceUpdateError)?;
+        self.available = new_availabe;
+        self.total = new_total;
         Ok(())
     }
 
-    /// Increment the `held` value by the provided amount
+    /// Move assets from the `available` to the `held` state.
+    ///
+    /// Decrements `available` and increments `held` by the provided amount.
     ///
     /// Errors if the update causes an underflow/overflow
-    pub fn inc_held(&mut self, amount: SignedCurrencyAmount) -> Result<(), BalanceUpdateError> {
-        self.held = self.held.checked_add(amount).ok_or(BalanceUpdateError)?;
-        self.total = self.total.checked_add(amount).ok_or(BalanceUpdateError)?;
+    ///
+    /// This update is atomic.
+    pub fn move_available_to_held(
+        &mut self,
+        amount: SignedCurrencyAmount,
+    ) -> Result<(), BalanceUpdateError> {
+        let new_available = self.total.checked_sub(amount).ok_or(BalanceUpdateError)?;
+        let new_held = self.held.checked_add(amount).ok_or(BalanceUpdateError)?;
+        self.available = new_available;
+        self.held = new_held;
         Ok(())
     }
 
     /// Decrement the `available` value by the provided amount
     ///
     /// Errors if the update causes an underflow/overflow
+    ///
+    /// This update is atomic.
     pub fn dec_available(
         &mut self,
         amount: SignedCurrencyAmount,
     ) -> Result<(), BalanceUpdateError> {
-        self.available = self
+        let new_available = self
             .available
             .checked_sub(amount)
             .ok_or(BalanceUpdateError)?;
-        self.total = self.total.checked_sub(amount).ok_or(BalanceUpdateError)?;
+        let new_total = self.total.checked_sub(amount).ok_or(BalanceUpdateError)?;
+        self.available = new_available;
+        self.total = new_total;
         Ok(())
     }
 }
@@ -266,21 +303,21 @@ pub mod cmd {
     #[derive(Debug, Eq, PartialEq)]
     pub struct Dispute {
         /// Client claiming that a previous transaction was erroneous.
-        client: ClientId,
-        tx: TransactionId,
+        pub client: ClientId,
+        pub tx: TransactionId,
     }
 
     #[derive(Debug, Eq, PartialEq)]
     pub struct Resolve {
         /// Client settling the dispute as resolved.
-        client: ClientId,
-        tx: TransactionId,
+        pub client: ClientId,
+        pub tx: TransactionId,
     }
 
     #[derive(Debug, Eq, PartialEq)]
     pub struct Chargeback {
         /// Client settling the dispute with chargeback.
-        client: ClientId,
-        tx: TransactionId,
+        pub client: ClientId,
+        pub tx: TransactionId,
     }
 }

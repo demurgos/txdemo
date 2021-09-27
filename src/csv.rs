@@ -17,7 +17,7 @@ struct CommandRecord {
     r#type: CommandType,
     client: ClientId,
     tx: TransactionId,
-    amount: UnsignedCurrencyAmount,
+    amount: Option<UnsignedCurrencyAmount>,
 }
 
 impl TryFrom<CommandRecord> for cmd::Deposit {
@@ -27,7 +27,7 @@ impl TryFrom<CommandRecord> for cmd::Deposit {
         Ok(Self(TransactionMeta {
             id: value.tx,
             client: value.client,
-            amount: value.amount,
+            amount: value.amount.ok_or(())?,
         }))
     }
 }
@@ -39,8 +39,19 @@ impl TryFrom<CommandRecord> for cmd::Withdrawal {
         Ok(Self(TransactionMeta {
             id: value.tx,
             client: value.client,
-            amount: value.amount,
+            amount: value.amount.ok_or(())?,
         }))
+    }
+}
+
+impl TryFrom<CommandRecord> for cmd::Dispute {
+    type Error = ();
+
+    fn try_from(value: CommandRecord) -> Result<Self, Self::Error> {
+        Ok(Self {
+            client: value.client,
+            tx: value.tx,
+        })
     }
 }
 
@@ -51,6 +62,7 @@ impl TryFrom<CommandRecord> for Command {
         let cmd = match record.r#type {
             CommandType::Deposit => Self::Deposit(record.try_into()?),
             CommandType::Withdrawal => Self::Withdrawal(record.try_into()?),
+            CommandType::Dispute => Self::Dispute(record.try_into()?),
         };
         Ok(cmd)
     }
@@ -61,6 +73,7 @@ impl TryFrom<CommandRecord> for Command {
 enum CommandType {
     Deposit,
     Withdrawal,
+    Dispute,
 }
 
 pub struct CsvCommandReader<R: io::Read> {

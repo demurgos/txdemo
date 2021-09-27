@@ -3,8 +3,18 @@ use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use thiserror::Error;
 
+/// How to handle disputes related to withdrawal transactions.
+pub enum WithdrawalDisputePolicy {
+    /// Ignore the dispute if it relates to a withdrawal transaction.
+    Deny,
+    /// Allow the dispute only if the amount is less than the available assets.
+    /// (Allows to always seize the account and recover the refund in case of
+    /// fraudulent chargeback)
+    IfMoreAvailableThanDisputed,
+}
+
 pub struct MemAccountService {
-    // event_log: Vec<ClientId, MemClient>,
+    withdrawal_dispute_policy: WithdrawalDisputePolicy,
     /// All the processed transactions
     ///
     /// ## Invariants
@@ -46,7 +56,7 @@ impl TransactionWithState {
     }
 }
 
-#[derive(Copy, Clone, Debug, Eq, Ord, PartialOrd, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum TransactionState {
     /// The transaction is currently valid and its effect is realized.
     ///
@@ -54,8 +64,11 @@ enum TransactionState {
     Valid,
     /// The transaction is disputed: the corresponding assets are held.
     ///
-    /// The transaction can either become `Valid` again following a `resolve`
-    /// or be definitely rejected (and its effects reverted) following `chargeback`.
+    /// A transaction dispute can only be claimed by the account owner.
+    ///
+    /// The transaction can either become `Valid` again following a `resolve` by
+    /// the owner or be definitely rejected (and its effects reverted)
+    /// following a `chargeback`.
     Disputed,
     /// The transaction was rejected because of insufficient or following a chargeback.
     ///
@@ -85,6 +98,8 @@ pub enum SubmitError {
     Deposit(#[from] DepositError),
     #[error("withdrawal command failed")]
     Withdrawal(#[from] WithdrawalError),
+    #[error("dispute command failed")]
+    Dispute(#[from] DisputeError),
 }
 
 #[derive(Error, Debug, Eq, PartialEq)]
@@ -109,9 +124,28 @@ pub enum WithdrawalError {
     InsufficientAssets,
 }
 
+#[derive(Error, Debug, Eq, PartialEq)]
+pub enum DisputeError {
+    #[error("disputed transaction #{} not found", .0)]
+    NotFound(TransactionId),
+    #[error("only the account owner is allowed to claim a dispute: account owner: #{}, claimant: #{}", .owner, .claimant)]
+    InvalidClaimant { owner: ClientId, claimant: ClientId },
+    #[error("transaction #{} is already rejected", .0)]
+    AlreadyRejected(TransactionId),
+    #[error("the client account is already locked, cannot submit further disputes")]
+    Locked,
+    #[error("failed to update the account balance due to an overflow or underflow")]
+    BalanceUpdateError,
+    #[error("disputing withdrawals is currently denied as per bank policy")]
+    WithdrawalDisputeDenied,
+    #[error("insufficient available assets to file the dispute")]
+    InsufficientAssets,
+}
+
 impl MemAccountService {
-    pub fn new() -> Self {
+    pub fn new(withdrawal_dispute_policy: WithdrawalDisputePolicy) -> Self {
         Self {
+            withdrawal_dispute_policy,
             transactions: HashMap::new(),
             accounts: HashMap::new(),
         }
@@ -121,6 +155,7 @@ impl MemAccountService {
         match cmd {
             Command::Deposit(cmd) => self.submit_deposit(cmd)?,
             Command::Withdrawal(cmd) => self.submit_withdrawal(cmd)?,
+            Command::Dispute(cmd) => self.submit_dispute(cmd)?,
             _ => todo!(),
         }
         Ok(())
@@ -128,7 +163,7 @@ impl MemAccountService {
 
     pub fn submit_deposit(&mut self, cmd: cmd::Deposit) -> Result<(), DepositError> {
         let cmd = cmd.0;
-        let tx = cmd.to_withdrawal_tx();
+        let tx = cmd.to_deposit_tx();
         let account = upsert_account(&mut self.accounts, cmd.client);
         let res = upsert_tx(
             &mut self.transactions,
@@ -190,6 +225,70 @@ impl MemAccountService {
             UpsertTxError::Conflict => WithdrawalError::TransactionIdConflict,
             UpsertTxError::Custom(e) => e,
         })
+    }
+
+    pub fn submit_dispute(&mut self, cmd: cmd::Dispute) -> Result<(), DisputeError> {
+        let tx = self
+            .transactions
+            .get_mut(&cmd.tx)
+            .ok_or(DisputeError::NotFound(cmd.tx))?;
+
+        let account = upsert_account(&mut self.accounts, tx.tx.client());
+
+        if account.id != cmd.client {
+            return Err(DisputeError::InvalidClaimant {
+                owner: account.id,
+                claimant: cmd.client,
+            });
+        }
+
+        if account.locked {
+            return Err(DisputeError::Locked);
+        }
+
+        match tx.state {
+            TransactionState::Rejected => return Err(DisputeError::AlreadyRejected(cmd.tx)),
+            TransactionState::Disputed => {
+                // Claiming a dispute against the same transaction again is a no-op
+            }
+            TransactionState::Valid => {
+                let disputed_amount = tx
+                    .tx
+                    .amount()
+                    .to_signed()
+                    .map_err(|_| DisputeError::BalanceUpdateError)?;
+                let has_more_available_than_disputed =
+                    account.balance.available() >= disputed_amount;
+
+                // Check dispute validity
+                match tx.tx {
+                    Transaction::Deposit(_) => {
+                        if !has_more_available_than_disputed {
+                            return Err(DisputeError::InsufficientAssets);
+                        }
+                    }
+                    Transaction::Withdrawal(_) => match self.withdrawal_dispute_policy {
+                        WithdrawalDisputePolicy::Deny => {
+                            return Err(DisputeError::WithdrawalDisputeDenied)
+                        }
+                        WithdrawalDisputePolicy::IfMoreAvailableThanDisputed => {
+                            if !has_more_available_than_disputed {
+                                return Err(DisputeError::InsufficientAssets);
+                            }
+                        }
+                    },
+                };
+
+                // At this point the dispute is valid: apply it
+                account
+                    .balance
+                    .move_available_to_held(disputed_amount)
+                    .map_err(|_| DisputeError::BalanceUpdateError)?;
+                tx.state = TransactionState::Disputed;
+            }
+        };
+
+        Ok(())
     }
 
     pub fn get_all_accounts(&self) -> MemAccountIter {
@@ -257,7 +356,7 @@ where
 
 impl Default for MemAccountService {
     fn default() -> Self {
-        Self::new()
+        Self::new(WithdrawalDisputePolicy::IfMoreAvailableThanDisputed)
     }
 }
 

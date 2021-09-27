@@ -20,6 +20,7 @@ is missing, the application reads stdin.
 
 Flags:
 - `--sort`: Sort the output by clien id.
+- `--deny-withdrawal-dispute`: Prevent `dispute` commands on `withdrawal` transactions.
 
 It prints the final state of all the accounts.
 
@@ -31,13 +32,138 @@ $ cargo run -- transactions.csv > accounts.csv
 $ cat accounts.csv
 ```
 
+## Introduction
+
+Clients are automatically created with an empty account the first time they
+are mentioned. Client accounts contain `available` and `held` assets.
+`available` assets can be freely withdrawn, `held` assets are currently
+dispute and can't be used until the dispute is settled. If the dispute is
+settled with a chargeback (cancel the transaction), the account it locked forever
+and any modification to its state is prevented (new transactions, disputes,
+resolutions, or chargebacks).
+
 ## Commands
+
+This section documents the five supported commands:
+
+- `deposit`: Create a new transaction to increase the available assets of the account.
+- `withdrawal`: Create a new transaction to decrease the available assets of the account.
+- `dispute`: File a dispute againts a transaction, freezing its assets in the `held` state until the dispute is settled.
+- `resolve`: Settle a dispute by cancelling the dispute: the assets are released back to the `available` state.
+- `chargeback`: Settle a dispute by reverting the transaction. The account is locked.
 
 ### deposit
 
+If the client account is not locked, increase its `available` assets by
+the provided amount.
+
+#### Example
+
+- Old state
+
+  ```
+  client, available, held, total, locked
+       1,        10,    1,    11, false
+  ```
+
+- Commands
+
+  ```
+     type, client, tx, amount
+  deposit,      1,  1,      3
+  ```
+  
+- New state
+
+  ```
+  client, available, held, total, locked
+       1,        13,    1,    14, false
+  ```
+
 ### withdrawal
 
+If the client account is not locked, decrease its `available` assets by
+the provided amount.
+
+#### Example
+
+- Old state
+
+  ```
+  client, available, held, total, locked
+       1,        10,    1,    11, false
+  ```
+
+- Commands
+
+  ```
+        type, client, tx, amount
+  withdrawal,      1,  1,      3
+  ```
+
+- New state
+
+  ```
+  client, available, held, total, locked
+       1,         7,    1,     8, false
+  ```
+
 ### dispute
+
+- **type**: `"dispute"`
+- **client**: `ClientId`, the client claiming that the transaction is erroneous
+- **tx**: `TransactionId`, id of the disputed transaction
+- **amount**: empty
+
+If the transaction exist, the corresponding account is not locked and the
+claimant client is the same who did the transaction, mark the transaction as
+disputed.
+
+A dispute can be filed for any passed transaction (there is no time limit)
+as long as the account has enough `available` assets.
+
+If the disputed transaction is a deposit, the situation is simple: move the
+erroneous assets to the `held` state pending resolution.
+
+If the disputed transaction is a withdrawal, the situation is more complex as
+a chargeback would mean refunding the client, and we want to prevent abuses.
+This app provides to options, you can pick the preferred one with the
+flag `--deny-withdrawal-dispute`:
+- Default (no flag): Allow withdrawal disputes as long as the account still has
+  at least the same amount of assets available. This means that an account
+  with `4.0` remaining available assets can dispute a `3.0` withdrawal but not
+  a `5.0` withdrawal. This strategy means that a refund will never pay out more
+  than the available assets. If it turns out that this was a dispute trying to
+  scam the bank, we can seize the account and there will always be enough assets
+  to pay back the refund.
+- `--deny-withdrawal-dispute`: Simply prevent any dispute regarding withdrawals.
+  Safer the bank as it is almost impossible to abuse, but it may hurt honest
+  clients.
+
+#### Example - Dispute withdrawal
+
+- Old state
+
+  ```
+  client, available, held, total, locked
+       1,        10,    1,    11, false
+  ```
+
+- Commands
+
+  ```
+        type, client, tx, amount
+  withdrawal,      1,  1,      3
+     dispute,      1,  1,
+  ```
+
+- New state
+
+  ```
+  client, available, held, total, locked
+       1,        10,   -2,     8, false
+  ```
+
 
 ### resolve
 

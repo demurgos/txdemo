@@ -1,4 +1,4 @@
-use crate::account::mem::MemAccountService;
+use crate::account::mem::{MemAccountService, WithdrawalDisputePolicy};
 use crate::core::{Account, ClientId};
 use crate::csv::{CsvAccountWriter, CsvCommandReader};
 use clap::Clap;
@@ -17,6 +17,10 @@ pub struct CliArgs {
     /// Sort output accounts by client id (default: false)
     #[clap(long)]
     sort: bool,
+    /// Deny all disputes related to withdrawals (default: allow if the account has more available
+    /// assets than the disputed amount).
+    #[clap(long)]
+    deny_withdrawal_dispute: bool,
 }
 
 pub fn run<Args, Arg, Stdin, Stdout, Stderr>(
@@ -34,23 +38,29 @@ where
 {
     let args = CliArgs::try_parse_from(args)?;
     let sort = args.sort;
+    let withdrawal_dispute_policy = if args.deny_withdrawal_dispute {
+        WithdrawalDisputePolicy::Deny
+    } else {
+        WithdrawalDisputePolicy::IfMoreAvailableThanDisputed
+    };
     return match args.input.as_deref() {
-        None => with_io(sort, stdin, stdout, stderr),
+        None => with_io(sort, withdrawal_dispute_policy, stdin, stdout, stderr),
         Some(file) => {
             let file = File::open(file).expect("FailedToOpenInputFile");
-            with_io(sort, file, stdout, stderr)
+            with_io(sort, withdrawal_dispute_policy, file, stdout, stderr)
         }
     };
 
     fn with_io<Input: io::Read, Output: io::Write, ErrOutput: io::Write>(
         sort: bool,
+        withdrawal_dispute_policy: WithdrawalDisputePolicy,
         input: Input,
         output: Output,
         mut err_output: ErrOutput,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let mut csv_reader = CsvCommandReader::from_reader(input);
         let mut csv_writer = CsvAccountWriter::from_writer(output);
-        let mut account_service = MemAccountService::new();
+        let mut account_service = MemAccountService::new(withdrawal_dispute_policy);
         for (idx, cmd) in csv_reader.commands().enumerate() {
             let cmd = cmd?;
             match account_service.submit(cmd) {
