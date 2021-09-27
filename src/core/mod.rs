@@ -263,6 +263,25 @@ impl AccountBalance {
         self.update(new_available, new_held)
     }
 
+    /// Move assets from the `held` to the `available` state.
+    ///
+    /// Decrements `held` and increments `available` by the provided amount.
+    ///
+    /// Errors if the update causes an underflow/overflow
+    ///
+    /// This update is atomic.
+    pub fn move_held_to_available(
+        &mut self,
+        amount: UnsignedAssetCount,
+    ) -> Result<(), BalanceUpdateError> {
+        let new_available = self
+            .available
+            .checked_add(amount)
+            .ok_or(BalanceUpdateError)?;
+        let new_held = self.held.checked_sub(amount).ok_or(BalanceUpdateError)?;
+        self.update(new_available, new_held)
+    }
+
     /// Decrement the `available` value by the provided amount
     ///
     /// Errors if the update causes an underflow/overflow
@@ -279,7 +298,7 @@ impl AccountBalance {
     /// Perform an atomic update of the account balance.
     ///
     /// The update fails if it causes any overflow or underflow.
-    fn update(
+    pub fn update(
         &mut self,
         new_available: UnsignedAssetCount,
         new_held: UnsignedAssetCount,

@@ -100,6 +100,10 @@ pub enum SubmitError {
     Withdrawal(#[from] WithdrawalError),
     #[error("dispute command failed")]
     Dispute(#[from] DisputeError),
+    #[error("resolve command failed")]
+    Resolve(#[from] ResolveError),
+    #[error("chargeback command failed")]
+    Chargeback(#[from] ChargebackError),
 }
 
 #[derive(Error, Debug, Eq, PartialEq)]
@@ -142,6 +146,34 @@ pub enum DisputeError {
     InsufficientAssets,
 }
 
+#[derive(Error, Debug, Eq, PartialEq)]
+pub enum ResolveError {
+    #[error("transaction to resolve (#{}) not found", .0)]
+    NotFound(TransactionId),
+    #[error("only the account owner is allowed to resolve a dispute claim: account owner: #{}, claimant: #{}", .owner, .claimant)]
+    InvalidClaimant { owner: ClientId, claimant: ClientId },
+    #[error("transaction #{} is already rejected", .0)]
+    AlreadyRejected(TransactionId),
+    #[error("the client account is already locked, cannot submit further dispute resolutions")]
+    Locked,
+    #[error("failed to update the account balance due to an overflow or underflow")]
+    BalanceUpdateError,
+}
+
+#[derive(Error, Debug, Eq, PartialEq)]
+pub enum ChargebackError {
+    #[error("transaction to resolve (#{}) not found", .0)]
+    NotFound(TransactionId),
+    #[error("only the account owner is allowed to resolve a dispute claim: account owner: #{}, claimant: #{}", .owner, .claimant)]
+    InvalidClaimant { owner: ClientId, claimant: ClientId },
+    #[error("transaction #{} is already rejected", .0)]
+    AlreadyRejected(TransactionId),
+    #[error("the client account is already locked, cannot submit further dispute resolutions")]
+    Locked,
+    #[error("failed to update the account balance due to an overflow or underflow")]
+    BalanceUpdateError,
+}
+
 impl MemAccountService {
     pub fn new(withdrawal_dispute_policy: WithdrawalDisputePolicy) -> Self {
         Self {
@@ -156,7 +188,8 @@ impl MemAccountService {
             Command::Deposit(cmd) => self.submit_deposit(cmd)?,
             Command::Withdrawal(cmd) => self.submit_withdrawal(cmd)?,
             Command::Dispute(cmd) => self.submit_dispute(cmd)?,
-            _ => todo!(),
+            Command::Resolve(cmd) => self.submit_resolve(cmd)?,
+            Command::Chargeback(cmd) => self.submit_chargeback(cmd)?,
         }
         Ok(())
     }
@@ -225,7 +258,7 @@ impl MemAccountService {
 
         let account = upsert_account(&mut self.accounts, tx.tx.client());
 
-        if account.id != cmd.client {
+        if cmd.client != account.id {
             return Err(DisputeError::InvalidClaimant {
                 owner: account.id,
                 claimant: cmd.client,
@@ -271,6 +304,114 @@ impl MemAccountService {
                     .move_available_to_held(disputed_amount)
                     .map_err(|_| DisputeError::BalanceUpdateError)?;
                 tx.state = TransactionState::Disputed;
+            }
+        };
+
+        Ok(())
+    }
+
+    pub fn submit_resolve(&mut self, cmd: cmd::Resolve) -> Result<(), ResolveError> {
+        let tx = self
+            .transactions
+            .get_mut(&cmd.tx)
+            .ok_or(ResolveError::NotFound(cmd.tx))?;
+
+        let account = upsert_account(&mut self.accounts, tx.tx.client());
+
+        if cmd.client != account.id {
+            return Err(ResolveError::InvalidClaimant {
+                owner: account.id,
+                claimant: cmd.client,
+            });
+        }
+
+        if account.locked {
+            return Err(ResolveError::Locked);
+        }
+
+        match tx.state {
+            TransactionState::Rejected => return Err(ResolveError::AlreadyRejected(cmd.tx)),
+            TransactionState::Valid => {
+                // Resolving a dispute against an already valid transaction is a no-op
+            }
+            TransactionState::Disputed => {
+                let disputed_amount = tx.tx.amount();
+
+                // Un-freeze the held assets by moving them back to the `available` state.
+                account
+                    .balance
+                    .move_held_to_available(disputed_amount)
+                    .map_err(|_| ResolveError::BalanceUpdateError)?;
+                tx.state = TransactionState::Valid;
+            }
+        };
+
+        Ok(())
+    }
+
+    pub fn submit_chargeback(&mut self, cmd: cmd::Chargeback) -> Result<(), ResolveError> {
+        let tx = self
+            .transactions
+            .get_mut(&cmd.tx)
+            .ok_or(ResolveError::NotFound(cmd.tx))?;
+
+        let account = upsert_account(&mut self.accounts, tx.tx.client());
+
+        if cmd.client != account.id {
+            return Err(ResolveError::InvalidClaimant {
+                owner: account.id,
+                claimant: cmd.client,
+            });
+        }
+
+        if account.locked {
+            return Err(ResolveError::Locked);
+        }
+
+        match tx.state {
+            TransactionState::Rejected => return Err(ResolveError::AlreadyRejected(cmd.tx)),
+            TransactionState::Valid => {
+                // Resolving a dispute against an already valid transaction is a no-op
+            }
+            TransactionState::Disputed => {
+                let disputed_amount = tx.tx.amount();
+
+                let (new_available, new_held) = match &tx.tx {
+                    Transaction::Deposit(_) => {
+                        // Remove the disputed amount from the held assets, no change to `available`:
+                        let new_held = account
+                            .balance
+                            .held()
+                            .checked_sub(disputed_amount)
+                            .ok_or(ResolveError::BalanceUpdateError)?;
+                        (account.balance.available(), new_held)
+                    }
+                    Transaction::Withdrawal(_) => {
+                        // Move the held disputed amount to `available`
+                        let new_held = account
+                            .balance
+                            .held()
+                            .checked_sub(disputed_amount)
+                            .ok_or(ResolveError::BalanceUpdateError)?;
+                        let new_available = account
+                            .balance
+                            .available()
+                            .checked_add(disputed_amount)
+                            .ok_or(ResolveError::BalanceUpdateError)?;
+                        // Then refund the withdrawn assets
+                        let new_available = new_available
+                            .checked_add(disputed_amount)
+                            .ok_or(ResolveError::BalanceUpdateError)?;
+                        (new_available, new_held)
+                    }
+                };
+
+                account
+                    .balance
+                    .update(new_available, new_held)
+                    .map_err(|_| ResolveError::BalanceUpdateError)?;
+                account.locked = true;
+                tx.state = TransactionState::Rejected;
             }
         };
 

@@ -54,6 +54,28 @@ impl TryFrom<CommandRecord> for cmd::Dispute {
     }
 }
 
+impl TryFrom<CommandRecord> for cmd::Resolve {
+    type Error = ();
+
+    fn try_from(value: CommandRecord) -> Result<Self, Self::Error> {
+        Ok(Self {
+            client: value.client,
+            tx: value.tx,
+        })
+    }
+}
+
+impl TryFrom<CommandRecord> for cmd::Chargeback {
+    type Error = ();
+
+    fn try_from(value: CommandRecord) -> Result<Self, Self::Error> {
+        Ok(Self {
+            client: value.client,
+            tx: value.tx,
+        })
+    }
+}
+
 impl TryFrom<CommandRecord> for Command {
     type Error = ();
 
@@ -62,6 +84,8 @@ impl TryFrom<CommandRecord> for Command {
             CommandType::Deposit => Self::Deposit(record.try_into()?),
             CommandType::Withdrawal => Self::Withdrawal(record.try_into()?),
             CommandType::Dispute => Self::Dispute(record.try_into()?),
+            CommandType::Resolve => Self::Resolve(record.try_into()?),
+            CommandType::Chargeback => Self::Chargeback(record.try_into()?),
         };
         Ok(cmd)
     }
@@ -73,6 +97,8 @@ enum CommandType {
     Deposit,
     Withdrawal,
     Dispute,
+    Resolve,
+    Chargeback,
 }
 
 pub struct CsvCommandReader<R: io::Read> {
@@ -131,7 +157,7 @@ impl TryFrom<Account> for AccountRecord {
             available: value.balance.available(),
             held: value.balance.held(),
             total: value.balance.total(),
-            locked: false,
+            locked: value.locked,
         })
     }
 }
