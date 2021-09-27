@@ -72,6 +72,12 @@ impl<T: Integer + CheckedAdd, const FRACTIONAL_DIGITS: u8> FixedDecimal<T, FRACT
     }
 }
 
+impl<T: Integer + CheckedSub, const FRACTIONAL_DIGITS: u8> FixedDecimal<T, FRACTIONAL_DIGITS> {
+    pub fn checked_sub(&self, v: &Self) -> Option<Self> {
+        num::CheckedSub::checked_sub(&self.0, &v.0).map(Self::from_fractions)
+    }
+}
+
 impl<T, const FRACTIONAL_DIGITS: u8> Display for FixedDecimal<T, FRACTIONAL_DIGITS>
 where
     T: Integer + Display + CheckedMul + CheckedSub + From<u8> + Clone,

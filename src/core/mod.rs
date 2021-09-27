@@ -58,6 +58,10 @@ impl SignedCurrencyAmount {
     pub fn checked_add(self, v: Self) -> Option<Self> {
         self.0.checked_add(&v.0).map(Self)
     }
+
+    pub fn checked_sub(self, v: Self) -> Option<Self> {
+        self.0.checked_sub(&v.0).map(Self)
+    }
 }
 
 impl fmt::Display for SignedCurrencyAmount {
@@ -216,6 +220,21 @@ impl AccountBalance {
     pub fn inc_held(&mut self, amount: SignedCurrencyAmount) -> Result<(), BalanceUpdateError> {
         self.held = self.held.checked_add(amount).ok_or(BalanceUpdateError)?;
         self.total = self.total.checked_add(amount).ok_or(BalanceUpdateError)?;
+        Ok(())
+    }
+
+    /// Decrement the `available` value by the provided amount
+    ///
+    /// Errors if the update causes an underflow/overflow
+    pub fn dec_available(
+        &mut self,
+        amount: SignedCurrencyAmount,
+    ) -> Result<(), BalanceUpdateError> {
+        self.available = self
+            .available
+            .checked_sub(amount)
+            .ok_or(BalanceUpdateError)?;
+        self.total = self.total.checked_sub(amount).ok_or(BalanceUpdateError)?;
         Ok(())
     }
 }
