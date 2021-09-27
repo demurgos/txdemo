@@ -36,34 +36,19 @@ impl fmt::Display for TransactionId {
     }
 }
 
+/// An unsigned amount of assets.
+///
+/// This type is backed by a [FixedDecimal<u64, 4>]:
+/// - Minimum value: `0.0000`
+/// - Maximum value: `1844674407370955.1615` (≃1.8e15)
+/// - Precision: `0.0001`
 #[derive(
     Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Default, Deserialize, Serialize,
 )]
-pub struct UnsignedCurrencyAmount(FixedDecimal<u64, 4>);
+pub struct UnsignedAssetCount(FixedDecimal<u64, 4>);
 
-impl UnsignedCurrencyAmount {
-    pub fn to_signed(self) -> Result<SignedCurrencyAmount, ToSignedCurrencyAmountError> {
-        self.try_into()
-    }
-
-    pub fn checked_add(self, v: Self) -> Option<Self> {
-        self.0.checked_add(&v.0).map(Self)
-    }
-}
-
-impl fmt::Display for UnsignedCurrencyAmount {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-#[derive(
-    Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Default, Deserialize, Serialize,
-)]
-pub struct SignedCurrencyAmount(FixedDecimal<i64, 4>);
-
-impl SignedCurrencyAmount {
-    pub fn to_unsigned(self) -> Result<UnsignedCurrencyAmount, ToUnsignedCurrencyAmountError> {
+impl UnsignedAssetCount {
+    pub fn to_signed(self) -> Result<SignedAssetCount, ToSignedCurrencyAmountError> {
         self.try_into()
     }
 
@@ -76,7 +61,32 @@ impl SignedCurrencyAmount {
     }
 }
 
-impl fmt::Display for SignedCurrencyAmount {
+impl fmt::Display for UnsignedAssetCount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+#[derive(
+    Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Default, Deserialize, Serialize,
+)]
+pub struct SignedAssetCount(FixedDecimal<i64, 4>);
+
+impl SignedAssetCount {
+    pub fn to_unsigned(self) -> Result<UnsignedAssetCount, ToUnsignedCurrencyAmountError> {
+        self.try_into()
+    }
+
+    pub fn checked_add(self, v: Self) -> Option<Self> {
+        self.0.checked_add(&v.0).map(Self)
+    }
+
+    pub fn checked_sub(self, v: Self) -> Option<Self> {
+        self.0.checked_sub(&v.0).map(Self)
+    }
+}
+
+impl fmt::Display for SignedAssetCount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
@@ -84,12 +94,12 @@ impl fmt::Display for SignedCurrencyAmount {
 
 #[derive(Error, Debug, Eq, PartialEq)]
 #[error("conversion error, cannot represent {} as unsigned", .0)]
-pub struct ToUnsignedCurrencyAmountError(SignedCurrencyAmount);
+pub struct ToUnsignedCurrencyAmountError(SignedAssetCount);
 
-impl TryFrom<SignedCurrencyAmount> for UnsignedCurrencyAmount {
+impl TryFrom<SignedAssetCount> for UnsignedAssetCount {
     type Error = ToUnsignedCurrencyAmountError;
 
-    fn try_from(value: SignedCurrencyAmount) -> Result<Self, Self::Error> {
+    fn try_from(value: SignedAssetCount) -> Result<Self, Self::Error> {
         let fractions: i64 = *value.0.fractions();
         let fractions: u64 = fractions
             .try_into()
@@ -100,12 +110,12 @@ impl TryFrom<SignedCurrencyAmount> for UnsignedCurrencyAmount {
 
 #[derive(Error, Debug, Eq, PartialEq)]
 #[error("conversion error, cannot represent {} as signed", .0)]
-pub struct ToSignedCurrencyAmountError(UnsignedCurrencyAmount);
+pub struct ToSignedCurrencyAmountError(UnsignedAssetCount);
 
-impl TryFrom<UnsignedCurrencyAmount> for SignedCurrencyAmount {
+impl TryFrom<UnsignedAssetCount> for SignedAssetCount {
     type Error = ToSignedCurrencyAmountError;
 
-    fn try_from(value: UnsignedCurrencyAmount) -> Result<Self, Self::Error> {
+    fn try_from(value: UnsignedAssetCount) -> Result<Self, Self::Error> {
         let fractions: u64 = *value.0.fractions();
         let fractions: i64 = fractions
             .try_into()
@@ -121,7 +131,7 @@ impl TryFrom<UnsignedCurrencyAmount> for SignedCurrencyAmount {
 pub struct TransactionMeta {
     pub id: TransactionId,
     pub client: ClientId,
-    pub amount: UnsignedCurrencyAmount,
+    pub amount: UnsignedAssetCount,
 }
 
 impl TransactionMeta {
@@ -151,7 +161,7 @@ impl Transaction {
         self.meta().client
     }
 
-    pub const fn amount(&self) -> UnsignedCurrencyAmount {
+    pub const fn amount(&self) -> UnsignedAssetCount {
         self.meta().amount
     }
 
@@ -182,13 +192,14 @@ pub struct Account {
 ///
 /// The balance also allows to retrieve the total amount associated with the
 /// account. The total is always the sum of the available and held amounts.
+///
+/// This struct enforces that both the `available` and `held` assets are
+/// always positive. It also prevents any updated that would cause an
+/// overflow or underflow of the `available`, `held` or `total` values.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct AccountBalance {
-    available: SignedCurrencyAmount,
-    held: SignedCurrencyAmount,
-    // The total is materialized to make sure it is always representable
-    // (so there is no overflow/underflow when summing the other fields.
-    total: SignedCurrencyAmount,
+    available: UnsignedAssetCount,
+    held: UnsignedAssetCount,
 }
 
 #[derive(Error, Debug, Eq, PartialEq)]
@@ -198,25 +209,26 @@ pub struct BalanceUpdateError;
 impl AccountBalance {
     pub fn new() -> Self {
         Self {
-            available: SignedCurrencyAmount::default(),
-            held: SignedCurrencyAmount::default(),
-            total: SignedCurrencyAmount::default(),
+            available: UnsignedAssetCount::default(),
+            held: UnsignedAssetCount::default(),
         }
     }
 
     /// Get the current available (non-disputed) amount of currency
-    pub fn available(self) -> SignedCurrencyAmount {
+    pub fn available(self) -> UnsignedAssetCount {
         self.available
     }
 
     /// Get the amount of currency currently held due to a dispute
-    pub fn held(self) -> SignedCurrencyAmount {
+    pub fn held(self) -> UnsignedAssetCount {
         self.held
     }
 
     /// Get the total amount of currency
-    pub fn total(self) -> SignedCurrencyAmount {
-        self.total
+    pub fn total(self) -> UnsignedAssetCount {
+        self.available
+            .checked_add(self.held)
+            .expect("internal invariant should enforce that computing the total always succeeds")
     }
 
     /// Increment the `available` value by the provided amount
@@ -224,18 +236,12 @@ impl AccountBalance {
     /// Errors if the update causes an underflow/overflow
     ///
     /// This update is atomic.
-    pub fn inc_available(
-        &mut self,
-        amount: SignedCurrencyAmount,
-    ) -> Result<(), BalanceUpdateError> {
-        let new_availabe = self
+    pub fn inc_available(&mut self, amount: UnsignedAssetCount) -> Result<(), BalanceUpdateError> {
+        let new_available = self
             .available
             .checked_add(amount)
             .ok_or(BalanceUpdateError)?;
-        let new_total = self.total.checked_add(amount).ok_or(BalanceUpdateError)?;
-        self.available = new_availabe;
-        self.total = new_total;
-        Ok(())
+        self.update(new_available, self.held)
     }
 
     /// Move assets from the `available` to the `held` state.
@@ -247,13 +253,14 @@ impl AccountBalance {
     /// This update is atomic.
     pub fn move_available_to_held(
         &mut self,
-        amount: SignedCurrencyAmount,
+        amount: UnsignedAssetCount,
     ) -> Result<(), BalanceUpdateError> {
-        let new_available = self.total.checked_sub(amount).ok_or(BalanceUpdateError)?;
+        let new_available = self
+            .available
+            .checked_sub(amount)
+            .ok_or(BalanceUpdateError)?;
         let new_held = self.held.checked_add(amount).ok_or(BalanceUpdateError)?;
-        self.available = new_available;
-        self.held = new_held;
-        Ok(())
+        self.update(new_available, new_held)
     }
 
     /// Decrement the `available` value by the provided amount
@@ -261,17 +268,28 @@ impl AccountBalance {
     /// Errors if the update causes an underflow/overflow
     ///
     /// This update is atomic.
-    pub fn dec_available(
-        &mut self,
-        amount: SignedCurrencyAmount,
-    ) -> Result<(), BalanceUpdateError> {
+    pub fn dec_available(&mut self, amount: UnsignedAssetCount) -> Result<(), BalanceUpdateError> {
         let new_available = self
             .available
             .checked_sub(amount)
             .ok_or(BalanceUpdateError)?;
-        let new_total = self.total.checked_sub(amount).ok_or(BalanceUpdateError)?;
+        self.update(new_available, self.held)
+    }
+
+    /// Perform an atomic update of the account balance.
+    ///
+    /// The update fails if it causes any overflow or underflow.
+    fn update(
+        &mut self,
+        new_available: UnsignedAssetCount,
+        new_held: UnsignedAssetCount,
+    ) -> Result<(), BalanceUpdateError> {
+        let total_sum_is_safe_to_compute = new_available.checked_add(new_held).is_some();
+        if !total_sum_is_safe_to_compute {
+            return Err(BalanceUpdateError);
+        }
         self.available = new_available;
-        self.total = new_total;
+        self.held = new_held;
         Ok(())
     }
 }

@@ -1,6 +1,5 @@
 use crate::core::{
-    cmd, Account, ClientId, Command, SignedCurrencyAmount, TransactionId, TransactionMeta,
-    UnsignedCurrencyAmount,
+    cmd, Account, ClientId, Command, TransactionId, TransactionMeta, UnsignedAssetCount,
 };
 use serde::{Deserialize, Serialize};
 use std::convert::{TryFrom, TryInto};
@@ -17,7 +16,7 @@ struct CommandRecord {
     r#type: CommandType,
     client: ClientId,
     tx: TransactionId,
-    amount: Option<UnsignedCurrencyAmount>,
+    amount: Option<UnsignedAssetCount>,
 }
 
 impl TryFrom<CommandRecord> for cmd::Deposit {
@@ -117,9 +116,9 @@ impl<'r, R: io::Read + 'r> Iterator for CsvCommandIter<'r, R> {
 #[derive(Debug, Serialize, Deserialize)]
 struct AccountRecord {
     client: ClientId,
-    available: SignedCurrencyAmount,
-    held: SignedCurrencyAmount,
-    total: SignedCurrencyAmount,
+    available: UnsignedAssetCount,
+    held: UnsignedAssetCount,
+    total: UnsignedAssetCount,
     locked: bool,
 }
 

@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use std::str::FromStr;
 use thiserror::Error;
 
-/// A decimal number with a fixed precision of `10 ** (-FRACTIONAL_DIGITS)` backed by a `T`.
+/// A decimal number with a fixed precision of `10 ** (-PRECISION)` backed by a `T`.
 ///
 /// This type is intended to represent currency amounts. As such it rejects situations leading to
 /// rounding and forces you to use checked arithmetic.
@@ -28,9 +28,9 @@ use thiserror::Error;
 /// | `FixedDecimal<i16, 5>` | -0.32768  | 0.32767                                 | 1e-5
 /// | `FixedDecimal<i16, 6>` | -0.032768 | 0.032767                                | 1e-6
 #[derive(Eq, PartialEq, Ord, PartialOrd, Hash, Copy, Clone, Default)]
-pub struct FixedDecimal<T: Integer, const FRACTIONAL_DIGITS: u8>(T);
+pub struct FixedDecimal<T: Integer, const PRECISION: u8>(T);
 
-impl<T: Integer, const FRACTIONAL_DIGITS: u8> FixedDecimal<T, FRACTIONAL_DIGITS> {
+impl<T: Integer, const PRECISION: u8> FixedDecimal<T, PRECISION> {
     /// Build a fixed decimal value from a number of fractions only.
     pub fn from_fractions(fractions: T) -> Self {
         Self(fractions)
@@ -41,7 +41,7 @@ impl<T: Integer, const FRACTIONAL_DIGITS: u8> FixedDecimal<T, FRACTIONAL_DIGITS>
     }
 }
 
-impl<T, const FRACTIONAL_DIGITS: u8> FixedDecimal<T, FRACTIONAL_DIGITS>
+impl<T, const PRECISION: u8> FixedDecimal<T, PRECISION>
 where
     T: Integer + CheckedMul + From<u8>,
 {
@@ -53,37 +53,37 @@ where
     pub fn fractions_per_unit() -> Option<T> {
         let ten: T = 10.into();
         let mut fractions = T::one();
-        for _ in 0..FRACTIONAL_DIGITS {
+        for _ in 0..PRECISION {
             fractions = fractions.checked_mul(&ten)?;
         }
         Some(fractions)
     }
 }
 
-impl<T: Integer + Debug, const FRACTIONAL_DIGITS: u8> Debug for FixedDecimal<T, FRACTIONAL_DIGITS> {
+impl<T: Integer + Debug, const PRECISION: u8> Debug for FixedDecimal<T, PRECISION> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "FixedDecimal({:?}e-{})", self.0, FRACTIONAL_DIGITS)
+        write!(f, "FixedDecimal({:?}e-{})", self.0, PRECISION)
     }
 }
 
-impl<T: Integer + CheckedAdd, const FRACTIONAL_DIGITS: u8> FixedDecimal<T, FRACTIONAL_DIGITS> {
+impl<T: Integer + CheckedAdd, const PRECISION: u8> FixedDecimal<T, PRECISION> {
     pub fn checked_add(&self, v: &Self) -> Option<Self> {
         num::CheckedAdd::checked_add(&self.0, &v.0).map(Self::from_fractions)
     }
 }
 
-impl<T: Integer + CheckedSub, const FRACTIONAL_DIGITS: u8> FixedDecimal<T, FRACTIONAL_DIGITS> {
+impl<T: Integer + CheckedSub, const PRECISION: u8> FixedDecimal<T, PRECISION> {
     pub fn checked_sub(&self, v: &Self) -> Option<Self> {
         num::CheckedSub::checked_sub(&self.0, &v.0).map(Self::from_fractions)
     }
 }
 
-impl<T, const FRACTIONAL_DIGITS: u8> Display for FixedDecimal<T, FRACTIONAL_DIGITS>
+impl<T, const PRECISION: u8> Display for FixedDecimal<T, PRECISION>
 where
     T: Integer + Display + CheckedMul + CheckedSub + From<u8> + Clone,
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if FRACTIONAL_DIGITS == 0 {
+        if PRECISION == 0 {
             return self.0.fmt(f);
         }
 
@@ -106,7 +106,7 @@ where
                     sign,
                     int,
                     frac,
-                    precision = usize::from(FRACTIONAL_DIGITS)
+                    precision = usize::from(PRECISION)
                 )
             }
             None => {
@@ -132,8 +132,8 @@ where
                     digits.push(digit);
                 }
                 write!(f, "{}", sign)?;
-                let digit_count = usize::min(digits.len(), FRACTIONAL_DIGITS.into());
-                let separator_index = digit_count - usize::from(FRACTIONAL_DIGITS);
+                let digit_count = usize::min(digits.len(), PRECISION.into());
+                let separator_index = digit_count - usize::from(PRECISION);
                 for i in 0..=digit_count {
                     if let Some(d) = digits.iter().rev().nth(i) {
                         write!(f, "{}", d)?;
@@ -150,7 +150,7 @@ where
     }
 }
 
-impl<T, const FRACTIONAL_DIGITS: u8> Serialize for FixedDecimal<T, FRACTIONAL_DIGITS>
+impl<T, const PRECISION: u8> Serialize for FixedDecimal<T, PRECISION>
 where
     T: Integer + Display + CheckedMul + CheckedSub + From<u8> + Clone,
 {
@@ -162,22 +162,21 @@ where
     }
 }
 
-impl<'de, T, const FRACTIONAL_DIGITS: u8> Deserialize<'de> for FixedDecimal<T, FRACTIONAL_DIGITS>
+impl<'de, T, const PRECISION: u8> Deserialize<'de> for FixedDecimal<T, PRECISION>
 where
     T: Integer + CheckedAdd + CheckedMul + CheckedSub + From<u8>,
 {
     fn deserialize<D: ::serde::Deserializer<'de>>(
         deserializer: D,
     ) -> ::std::result::Result<Self, D::Error> {
-        struct SerdeVisitor<T, const FRACTIONAL_DIGITS: u8>(PhantomData<T>)
+        struct SerdeVisitor<T, const PRECISION: u8>(PhantomData<T>)
         where
             T: Integer + CheckedAdd + CheckedMul + CheckedSub + From<u8>;
-        impl<'de, T, const FRACTIONAL_DIGITS: u8> ::serde::de::Visitor<'de>
-            for SerdeVisitor<T, FRACTIONAL_DIGITS>
+        impl<'de, T, const PRECISION: u8> ::serde::de::Visitor<'de> for SerdeVisitor<T, PRECISION>
         where
             T: Integer + CheckedAdd + CheckedMul + CheckedSub + From<u8>,
         {
-            type Value = FixedDecimal<T, FRACTIONAL_DIGITS>;
+            type Value = FixedDecimal<T, PRECISION>;
 
             fn expecting(&self, fmt: &mut ::std::fmt::Formatter) -> std::fmt::Result {
                 fmt.write_str("a string representing a decimal id")
@@ -207,8 +206,8 @@ pub enum ParseFixedDecimalError {
     NoDigits,
 }
 
-impl<T: Integer + CheckedAdd + CheckedMul + CheckedSub + From<u8>, const FRACTIONAL_DIGITS: u8>
-    FromStr for FixedDecimal<T, FRACTIONAL_DIGITS>
+impl<T: Integer + CheckedAdd + CheckedMul + CheckedSub + From<u8>, const PRECISION: u8> FromStr
+    for FixedDecimal<T, PRECISION>
 {
     type Err = ParseFixedDecimalError;
 
@@ -226,21 +225,11 @@ impl<T: Integer + CheckedAdd + CheckedMul + CheckedSub + From<u8>, const FRACTIO
     }
 }
 
-// impl<T: Integer + Unsigned + CheckedAdd + CheckedMul + From<u8>, const FRACTIONAL_DIGITS: u8>
-//     FromStr for FixedDecimal<T, FRACTIONAL_DIGITS>
-// {
-//     type Err = ParseFixedDecimalError;
-//
-//     fn from_str(s: &str) -> Result<Self, Self::Err> {
-//         lex_digits(s.bytes(), T::one())
-//     }
-// }
-
-/// `sign`: -1 or 1
-fn lex_digits<T: Integer + CheckedAdd + CheckedMul + From<u8>, const FRACTIONAL_DIGITS: u8>(
+/// `signum`: -1 or 1
+fn lex_digits<T: Integer + CheckedAdd + CheckedMul + From<u8>, const PRECISION: u8>(
     mut input: std::str::Bytes,
     signum: T,
-) -> Result<FixedDecimal<T, FRACTIONAL_DIGITS>, ParseFixedDecimalError> {
+) -> Result<FixedDecimal<T, PRECISION>, ParseFixedDecimalError> {
     let mut fractions: T = T::zero();
     let mut has_digit: bool = false;
     let mut decimal_digits: Option<u16> = None;
@@ -251,7 +240,7 @@ fn lex_digits<T: Integer + CheckedAdd + CheckedMul + From<u8>, const FRACTIONAL_
             Some(c @ b'0'..=b'9') => {
                 has_digit = true;
                 if let Some(dd) = decimal_digits {
-                    if dd == u16::from(FRACTIONAL_DIGITS) {
+                    if dd == u16::from(PRECISION) {
                         return Err(ParseFixedDecimalError::TooMuchFractionalDigits);
                     }
                     decimal_digits = Some(dd + 1);
@@ -283,7 +272,7 @@ fn lex_digits<T: Integer + CheckedAdd + CheckedMul + From<u8>, const FRACTIONAL_
     }
     // Shift the current value to match the expected precision
     let mut decimal_digits = decimal_digits.unwrap_or(0);
-    while decimal_digits < u16::from(FRACTIONAL_DIGITS) {
+    while decimal_digits < u16::from(PRECISION) {
         decimal_digits += 1;
         fractions = fractions
             .checked_mul(&ten)

@@ -173,14 +173,9 @@ impl MemAccountService {
                     return Err(DepositError::Locked);
                 };
 
-                let amount = cmd
-                    .amount
-                    .to_signed()
-                    .map_err(|_| DepositError::BalanceUpdateError)?;
-
                 account
                     .balance
-                    .inc_available(amount)
+                    .inc_available(cmd.amount)
                     .map_err(|_| DepositError::BalanceUpdateError)?;
                 Ok(())
             },
@@ -204,18 +199,13 @@ impl MemAccountService {
                     return Err(WithdrawalError::Locked);
                 };
 
-                let amount = cmd
-                    .amount
-                    .to_signed()
-                    .map_err(|_| WithdrawalError::BalanceUpdateError)?;
-
-                if account.balance.available() < amount {
+                if account.balance.available() < cmd.amount {
                     return Err(WithdrawalError::InsufficientAssets);
                 }
 
                 account
                     .balance
-                    .dec_available(amount)
+                    .dec_available(cmd.amount)
                     .map_err(|_| WithdrawalError::BalanceUpdateError)?;
                 Ok(())
             },
@@ -252,11 +242,7 @@ impl MemAccountService {
                 // Claiming a dispute against the same transaction again is a no-op
             }
             TransactionState::Valid => {
-                let disputed_amount = tx
-                    .tx
-                    .amount()
-                    .to_signed()
-                    .map_err(|_| DisputeError::BalanceUpdateError)?;
+                let disputed_amount = tx.tx.amount();
                 let has_more_available_than_disputed =
                     account.balance.available() >= disputed_amount;
 
