@@ -359,7 +359,7 @@ impl Default for AccountBalance {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Command {
     Deposit(cmd::Deposit),
     Withdrawal(cmd::Withdrawal),
@@ -371,27 +371,27 @@ pub enum Command {
 pub mod cmd {
     use crate::core::{ClientId, TransactionId, TransactionMeta};
 
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct Deposit(pub TransactionMeta);
 
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct Withdrawal(pub TransactionMeta);
 
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct Dispute {
         /// Client claiming that a previous transaction was erroneous.
         pub client: ClientId,
         pub tx: TransactionId,
     }
 
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct Resolve {
         /// Client settling the dispute as resolved.
         pub client: ClientId,
         pub tx: TransactionId,
     }
 
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct Chargeback {
         /// Client settling the dispute with chargeback.
         pub client: ClientId,

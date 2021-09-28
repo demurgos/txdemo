@@ -200,7 +200,7 @@ pub enum DisputeError {
 pub enum ResolveError {
     #[error("transaction to resolve (#{}) not found", .0)]
     NotFound(TransactionId),
-    #[error("only the account owner is allowed to resolve a dispute claim: account owner: #{}, claimant: #{}", .owner, .claimant)]
+    #[error("only the account owner is allowed to settle a dispute claim: account owner: #{}, claimant: #{}", .owner, .claimant)]
     InvalidClaimant { owner: ClientId, claimant: ClientId },
     #[error("transaction #{} is already rejected", .0)]
     AlreadyRejected(TransactionId),
@@ -214,11 +214,11 @@ pub enum ResolveError {
 pub enum ChargebackError {
     #[error("transaction to resolve (#{}) not found", .0)]
     NotFound(TransactionId),
-    #[error("only the account owner is allowed to resolve a dispute claim: account owner: #{}, claimant: #{}", .owner, .claimant)]
+    #[error("only the account owner is allowed to settle a dispute claim: account owner: #{}, claimant: #{}", .owner, .claimant)]
     InvalidClaimant { owner: ClientId, claimant: ClientId },
-    #[error("transaction #{} is already rejected", .0)]
-    AlreadyRejected(TransactionId),
-    #[error("the client account is already locked, cannot submit further dispute resolutions")]
+    #[error("transaction #{} must first be disputed before it can be charged back", .0)]
+    NonDisputed(TransactionId),
+    #[error("the client account is already locked, cannot submit further dispute chargebacks")]
     Locked,
     #[error("failed to update the account balance due to an overflow or underflow")]
     BalanceUpdateError,
@@ -399,30 +399,30 @@ impl MemAccountService {
         Ok(())
     }
 
-    pub fn submit_chargeback(&mut self, cmd: cmd::Chargeback) -> Result<(), ResolveError> {
+    pub fn submit_chargeback(&mut self, cmd: cmd::Chargeback) -> Result<(), ChargebackError> {
         let tx = self
             .transactions
             .get_mut(&cmd.tx)
-            .ok_or(ResolveError::NotFound(cmd.tx))?;
+            .ok_or(ChargebackError::NotFound(cmd.tx))?;
 
         let account = upsert_account(&mut self.accounts, tx.tx.client());
 
         if cmd.client != account.id {
-            return Err(ResolveError::InvalidClaimant {
+            return Err(ChargebackError::InvalidClaimant {
                 owner: account.id,
                 claimant: cmd.client,
             });
         }
 
         if account.locked {
-            return Err(ResolveError::Locked);
+            return Err(ChargebackError::Locked);
         }
 
         match tx.state {
-            TransactionState::Rejected => return Err(ResolveError::AlreadyRejected(cmd.tx)),
-            TransactionState::Valid => {
-                // Resolving a dispute against an already valid transaction is a no-op
+            TransactionState::Rejected => {
+                // Chargebacking an already rejected command is a no-op
             }
+            TransactionState::Valid => return Err(ChargebackError::NonDisputed(cmd.tx)),
             TransactionState::Disputed => {
                 let disputed_amount = tx.tx.amount();
 
@@ -433,7 +433,7 @@ impl MemAccountService {
                             .balance
                             .held()
                             .checked_sub(disputed_amount)
-                            .ok_or(ResolveError::BalanceUpdateError)?;
+                            .ok_or(ChargebackError::BalanceUpdateError)?;
                         (account.balance.available(), new_held)
                     }
                     Transaction::Withdrawal(_) => {
@@ -442,16 +442,16 @@ impl MemAccountService {
                             .balance
                             .held()
                             .checked_sub(disputed_amount)
-                            .ok_or(ResolveError::BalanceUpdateError)?;
+                            .ok_or(ChargebackError::BalanceUpdateError)?;
                         let new_available = account
                             .balance
                             .available()
                             .checked_add(disputed_amount)
-                            .ok_or(ResolveError::BalanceUpdateError)?;
+                            .ok_or(ChargebackError::BalanceUpdateError)?;
                         // Then refund the withdrawn assets
                         let new_available = new_available
                             .checked_add(disputed_amount)
-                            .ok_or(ResolveError::BalanceUpdateError)?;
+                            .ok_or(ChargebackError::BalanceUpdateError)?;
                         (new_available, new_held)
                     }
                 };
@@ -459,7 +459,7 @@ impl MemAccountService {
                 account
                     .balance
                     .update(new_available, new_held)
-                    .map_err(|_| ResolveError::BalanceUpdateError)?;
+                    .map_err(|_| ChargebackError::BalanceUpdateError)?;
                 account.locked = true;
                 tx.state = TransactionState::Rejected;
             }

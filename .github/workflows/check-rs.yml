@@ -24,17 +24,25 @@ jobs:
           components: rustfmt, clippy
 
       - name: Build and test
-        uses: actions-rs/tarpaulin@v0.1
+        uses: actions-rs/cargo@v1
         with:
-          out-type: "lcov"
-          args: "--count"
+          command: test
 
-      - name: Upload coverage report to codecov.io
-        uses: codecov/codecov-action@v2
-        with:
-          # It's important to set this field otherwiser it will try to upload
-          # our test resources.
-          files: "./lcov.info"
+# Test coverage supported is temporarily disabled as Tarpaulin segfaults
+# on the latest commits.
+#
+#      - name: Build and test
+#        uses: actions-rs/tarpaulin@v0.1
+#        with:
+#          out-type: "lcov"
+#          args: "--count"
+#
+#      - name: Upload coverage report to codecov.io
+#        uses: codecov/codecov-action@v2
+#        with:
+#          # It's important to set this field otherwiser it will try to upload
+#          # our test resources.
+#          files: "./lcov.info"
 
       - name: Check code formatting
         uses: actions-rs/cargo@v1

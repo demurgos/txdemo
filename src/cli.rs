@@ -61,31 +61,23 @@ where
         let mut csv_reader = CsvCommandReader::from_reader(input);
         let mut csv_writer = CsvAccountWriter::from_writer(output);
         let mut account_service = MemAccountService::new(withdrawal_dispute_policy);
-        for (idx, cmd) in csv_reader.commands().enumerate() {
-            let cmd = cmd?;
+        for row in csv_reader.commands() {
+            let cmd = match row.record {
+                Ok(cmd) => cmd,
+                Err(e) => {
+                    print_error(e, &row.start, &mut err_output);
+                    continue;
+                }
+            };
             match account_service.submit(cmd) {
                 Ok(()) => {}
                 Err(e) => {
-                    writeln!(
-                        err_output,
-                        "Command #{} (line {}) failed:",
-                        idx + 1,
-                        idx + 2
-                    )
-                    .expect("failed to log error");
-                    let mut e: &(dyn std::error::Error + 'static) = &e;
-                    loop {
-                        writeln!(err_output, "- {}", e).expect("failed to log error");
-                        if let Some(cause) = e.source() {
-                            e = cause;
-                        } else {
-                            break;
-                        }
-                    }
+                    print_error(e, &row.start, &mut err_output);
                 }
             };
         }
         let accounts = account_service.get_all_accounts();
+        csv_writer.write_headers()?;
         if sort {
             let mut accounts: Vec<Account> = accounts.collect();
             accounts.sort_by(|left, right| ClientId::cmp(&left.client, &right.client));
@@ -95,6 +87,29 @@ where
         }
         csv_writer.flush()?;
         Ok(())
+    }
+
+    fn print_error<E: std::error::Error + 'static, ErrOutput: io::Write>(
+        error: E,
+        pos: &csv::Position,
+        err_output: &mut ErrOutput,
+    ) {
+        writeln!(
+            err_output,
+            "Command #{} (line {}) failed:",
+            pos.record(),
+            pos.line(),
+        )
+        .expect("failed to log error");
+        let mut e: &(dyn std::error::Error + 'static) = &error;
+        loop {
+            writeln!(err_output, "- {}", e).expect("failed to log error");
+            if let Some(cause) = e.source() {
+                e = cause;
+            } else {
+                break;
+            }
+        }
     }
 }
 
@@ -113,8 +128,23 @@ mod test {
         let expected_path = test_item_dir.join("expected.csv");
         let actual_path = test_item_dir.join("actual.csv");
         let errors_path = test_item_dir.join("errors.log");
+        let flags_path = test_item_dir.join("flags.txt");
 
-        let args = vec!["txdemo", "--sort"];
+        let extra_flags = match fs::read_to_string(flags_path) {
+            Ok(extra_flags) => extra_flags,
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::NotFound => String::new(),
+                _ => panic!("Failed to read flags: {}", e),
+            },
+        };
+
+        let mut args = vec!["txdemo", "--sort"];
+        args.extend(
+            extra_flags
+                .split('\n')
+                .map(str::trim)
+                .filter(|f| !f.is_empty()),
+        );
         let stdio = File::open(input_path).expect("FailedToOpenInputFile");
         let stdout = fs::OpenOptions::new()
             .create(true)

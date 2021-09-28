@@ -223,8 +223,24 @@ On Linux, install [Tarpaulin](https://github.com/xd009642/tarpaulin) and run the
 following command:
 
 ```
-cargo tarpaulin
+cargo tarpaulin --out html --output-dir ./target/debug/coverage/
 ```
+
+You may also use [Grcov](https://github.com/mozilla/grcov) to measure code coverage.
+It requires Nightly but is more acurate in my experience:
+
+```
+rustup run nightly cargo install grcov
+rustup run nightly rustup component add llvm-tools-preview
+rustup run nightly cargo build
+rm -rf target/debug/profile/
+mkdir -p target/debug/profile/
+LLVM_PROFILE_FILE="target/debug/profile/%p-%m.profraw" RUSTFLAGS="-Zinstrument-coverage" rustup run nightly cargo test
+rustup run nightly grcov ./target/debug/profile/ -s . --binary-path ./target/debug/ -t html --branch --ignore-not-existing -o ./target/debug/coverage/
+```
+
+The report will be in `./target/debug/coverage/`.
+
 
 ## Format code
 

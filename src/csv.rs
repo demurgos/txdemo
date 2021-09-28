@@ -4,6 +4,7 @@ use crate::core::{
 use serde::{Deserialize, Serialize};
 use std::convert::{TryFrom, TryInto};
 use std::io;
+use thiserror::Error;
 
 /// A command record as found in input CSV files
 ///
@@ -19,73 +20,83 @@ struct CommandRecord {
     amount: Option<UnsignedAssetCount>,
 }
 
+#[derive(Error, Debug, Copy, Clone, Eq, PartialEq)]
+#[error("missing deposit amount")]
+pub struct FromDepositRecordError;
+
 impl TryFrom<CommandRecord> for cmd::Deposit {
-    type Error = ();
+    type Error = FromDepositRecordError;
 
     fn try_from(value: CommandRecord) -> Result<Self, Self::Error> {
         Ok(Self(TransactionMeta {
             id: value.tx,
             client: value.client,
-            amount: value.amount.ok_or(())?,
+            amount: value.amount.ok_or(FromDepositRecordError)?,
         }))
     }
 }
+
+#[derive(Error, Debug, Copy, Clone, Eq, PartialEq)]
+#[error("missing withdrawal amount")]
+pub struct FromWithdrawalRecordError;
 
 impl TryFrom<CommandRecord> for cmd::Withdrawal {
-    type Error = ();
+    type Error = FromWithdrawalRecordError;
 
     fn try_from(value: CommandRecord) -> Result<Self, Self::Error> {
         Ok(Self(TransactionMeta {
             id: value.tx,
             client: value.client,
-            amount: value.amount.ok_or(())?,
+            amount: value.amount.ok_or(FromWithdrawalRecordError)?,
         }))
     }
 }
 
-impl TryFrom<CommandRecord> for cmd::Dispute {
-    type Error = ();
-
-    fn try_from(value: CommandRecord) -> Result<Self, Self::Error> {
-        Ok(Self {
+impl From<CommandRecord> for cmd::Dispute {
+    fn from(value: CommandRecord) -> Self {
+        Self {
             client: value.client,
             tx: value.tx,
-        })
+        }
     }
 }
 
-impl TryFrom<CommandRecord> for cmd::Resolve {
-    type Error = ();
-
-    fn try_from(value: CommandRecord) -> Result<Self, Self::Error> {
-        Ok(Self {
+impl From<CommandRecord> for cmd::Resolve {
+    fn from(value: CommandRecord) -> Self {
+        Self {
             client: value.client,
             tx: value.tx,
-        })
+        }
     }
 }
 
-impl TryFrom<CommandRecord> for cmd::Chargeback {
-    type Error = ();
-
-    fn try_from(value: CommandRecord) -> Result<Self, Self::Error> {
-        Ok(Self {
+impl From<CommandRecord> for cmd::Chargeback {
+    fn from(value: CommandRecord) -> Self {
+        Self {
             client: value.client,
             tx: value.tx,
-        })
+        }
     }
+}
+
+#[derive(Error, Debug, Copy, Clone)]
+pub enum FromCommandRecordError {
+    #[error("invalid record for the type `deposit`")]
+    Deposit(#[from] FromDepositRecordError),
+    #[error("invalid record for the type `withdrawal`")]
+    Withdrawal(#[from] FromWithdrawalRecordError),
 }
 
 impl TryFrom<CommandRecord> for Command {
-    type Error = ();
+    type Error = FromCommandRecordError;
 
     fn try_from(record: CommandRecord) -> Result<Self, Self::Error> {
         let cmd = match record.r#type {
             CommandType::Deposit => Self::Deposit(record.try_into()?),
             CommandType::Withdrawal => Self::Withdrawal(record.try_into()?),
-            CommandType::Dispute => Self::Dispute(record.try_into()?),
-            CommandType::Resolve => Self::Resolve(record.try_into()?),
-            CommandType::Chargeback => Self::Chargeback(record.try_into()?),
+            CommandType::Dispute => Self::Dispute(record.into()),
+            CommandType::Resolve => Self::Resolve(record.into()),
+            CommandType::Chargeback => Self::Chargeback(record.into()),
         };
         Ok(cmd)
     }
@@ -123,15 +134,41 @@ pub struct CsvCommandIter<'r, R: io::Read + 'r> {
     inner: csv::DeserializeRecordsIter<'r, R, CommandRecord>,
 }
 
+#[derive(Debug)]
+pub struct CsvRow {
+    pub start: csv::Position,
+    pub end: csv::Position,
+    pub record: Result<Command, CsvRowError>,
+}
+
+#[derive(Error, Debug)]
+pub enum CsvRowError {
+    // #[error("I/O error while reading the CSV records")]
+    // Io(#[from] io::Error),
+    // #[error("failed to parse record at position {:?}", .0)]
+    // DeserializeError(Option<csv::Position>, #[source] csv::DeserializeError),
+    #[error("failed to read the record as a valid command")]
+    ValidationError(#[from] FromCommandRecordError),
+    #[error("other CSV error")]
+    Csv(#[from] csv::Error),
+}
+
 impl<'r, R: io::Read + 'r> Iterator for CsvCommandIter<'r, R> {
-    type Item = csv::Result<Command>;
+    type Item = CsvRow;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let start = self.inner.reader().position().clone();
         let record = self.inner.next()?;
-        Some(match record {
-            Ok(record) => Ok(Command::try_from(record).unwrap()),
-            Err(e) => Err(e),
-        })
+        let end = self.inner.reader().position().clone();
+        let row = CsvRow {
+            start,
+            end,
+            record: match record {
+                Ok(record) => Command::try_from(record).map_err(CsvRowError::ValidationError),
+                Err(err) => Err(CsvRowError::Csv(err)),
+            },
+        };
+        Some(row)
     }
 }
 
@@ -168,8 +205,24 @@ pub struct CsvAccountWriter<W: io::Write> {
 
 impl<W: io::Write> CsvAccountWriter<W> {
     pub fn from_writer(writer: W) -> Self {
-        let inner = csv::Writer::from_writer(writer);
+        let inner = csv::WriterBuilder::new()
+            .has_headers(false)
+            .from_writer(writer);
         Self { inner }
+    }
+
+    /// Write a header line.
+    ///
+    /// This must be called explicitly to support empty collections.
+    /// See https://github.com/BurntSushi/rust-csv/issues/161
+    pub fn write_headers(&mut self) -> csv::Result<()> {
+        self.inner.write_record(std::array::IntoIter::new([
+            "client",
+            "available",
+            "held",
+            "total",
+            "locked",
+        ]))
     }
 
     pub fn write(&mut self, account: Account) -> csv::Result<()> {
