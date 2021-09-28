@@ -47,7 +47,7 @@ client,available,held,total,locked
 Clients are automatically created with an empty account the first time they
 are mentioned. Client accounts contain `available` and `held` assets.
 `available` assets can be freely withdrawn, `held` assets are currently
-dispute and can't be used until the dispute is settled. If the dispute is
+disputed and can't be used until the dispute is settled. If the dispute is
 settled with a chargeback (cancel the transaction), the account it locked forever
 and any modification to its state is prevented (new transactions, disputes,
 resolutions, or chargebacks).
@@ -387,7 +387,7 @@ CSV input. Only about 20% of the time is spent actually handling commands.
 This means that better performance can be obtained by changing the input format
 or the CSV parser, but the account service is performant enough.
 
-There are no special tricks: the code is single threaded a fairly simple.
+There are no special tricks: the code is single threaded and fairly simple.
 The memory requirements are proportional to the unique clients and unique
 transactions ids. The time to run should grow linearly with the size of the
 input.
@@ -395,7 +395,7 @@ input.
 # Security
 
 The repo is configured to run security audits automatically. The number of
-dependencies is small and they either established or verified by myself.
+dependencies is small and they are either established or verified by myself.
 All the commits on this repository are signed and verified by GitHub to match
 my GPG key.
 
