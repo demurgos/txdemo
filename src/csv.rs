@@ -112,6 +112,8 @@ enum CommandType {
     Chargeback,
 }
 
+/// A wrapper providing a higher level API to read transaction commands from a
+/// CSV stream.
 pub struct CsvCommandReader<R: io::Read> {
     inner: csv::Reader<R>,
 }
@@ -124,6 +126,11 @@ impl<R: io::Read> CsvCommandReader<R> {
         Self { inner }
     }
 
+    /// Return an iterator for all the transaction commands.
+    ///
+    /// If a row contains a syntax error, it is returned to allow the app
+    /// to display an error message. You can continue the iteration after the
+    /// error without any issue.
     pub fn commands(&mut self) -> CsvCommandIter<R> {
         let inner = self.inner.deserialize::<CommandRecord>();
         CsvCommandIter { inner }
@@ -134,6 +141,10 @@ pub struct CsvCommandIter<'r, R: io::Read + 'r> {
     inner: csv::DeserializeRecordsIter<'r, R, CommandRecord>,
 }
 
+/// A row from the input CSV
+///
+/// The `.record` field is either a valid command if the row was well-formed,
+/// or an error object indicating the issue.
 #[derive(Debug)]
 pub struct CsvRow {
     pub start: csv::Position,
@@ -143,14 +154,16 @@ pub struct CsvRow {
 
 #[derive(Error, Debug)]
 pub enum CsvRowError {
-    // #[error("I/O error while reading the CSV records")]
-    // Io(#[from] io::Error),
-    // #[error("failed to parse record at position {:?}", .0)]
-    // DeserializeError(Option<csv::Position>, #[source] csv::DeserializeError),
+    /// Malformed CSV row
+    /// Some example of possible reasons are uneven row length, invalid encoding
+    /// malformed data.
+    #[error("CSV error")]
+    Csv(#[from] csv::Error),
+    /// The row could be read as a valid CSV record but could not be validated
+    /// as a well-formed command.
+    /// The most common reason is a missing amount for transaction commands.
     #[error("failed to read the record as a valid command")]
     ValidationError(#[from] FromCommandRecordError),
-    #[error("other CSV error")]
-    Csv(#[from] csv::Error),
 }
 
 impl<'r, R: io::Read + 'r> Iterator for CsvCommandIter<'r, R> {
@@ -199,6 +212,10 @@ impl TryFrom<Account> for AccountRecord {
     }
 }
 
+/// Helper struct to provide a higher-level API to output account states.
+///
+/// Note that it does not write the CSV header row automatically, you must call
+/// `.write_headers` manually.
 pub struct CsvAccountWriter<W: io::Write> {
     inner: csv::Writer<W>,
 }
@@ -225,6 +242,7 @@ impl<W: io::Write> CsvAccountWriter<W> {
         ]))
     }
 
+    /// Write a single CSV row.
     pub fn write(&mut self, account: Account) -> csv::Result<()> {
         let record: AccountRecord = account
             .try_into()
@@ -232,6 +250,7 @@ impl<W: io::Write> CsvAccountWriter<W> {
         self.inner.serialize(record)
     }
 
+    /// Consume the iterator and write one row per item.
     pub fn write_all<Iter: Iterator<Item = Account>>(&mut self, accounts: Iter) -> csv::Result<()> {
         for account in accounts {
             self.write(account)?;
@@ -239,6 +258,7 @@ impl<W: io::Write> CsvAccountWriter<W> {
         Ok(())
     }
 
+    /// Flush the inner writer.
     pub fn flush(&mut self) -> std::io::Result<()> {
         self.inner.flush()
     }

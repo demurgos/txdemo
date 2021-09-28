@@ -85,13 +85,14 @@ impl FromStr for UnsignedAssetCount {
     }
 }
 
-/// A deposit transaction.
-///
-/// If the client account is not frozen, add funds to it.
+/// Metadata common to both `Deposit` and `Withdrawal` transactions.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct TransactionMeta {
+    /// Transaction id
     pub id: TransactionId,
+    /// Client who initiated the transaction
     pub client: ClientId,
+    /// Asset amount to move for this transaction
     pub amount: UnsignedAssetCount,
 }
 
@@ -114,14 +115,17 @@ pub enum Transaction {
 }
 
 impl Transaction {
+    /// Get the transaction id, regardless of its type
     pub const fn id(&self) -> TransactionId {
         self.meta().id
     }
 
+    /// Get the client id for the account owner, regardless of the transaction type
     pub const fn client(&self) -> ClientId {
         self.meta().client
     }
 
+    /// Get the transaction amount, regardless of the transaction type
     pub const fn amount(&self) -> UnsignedAssetCount {
         self.meta().amount
     }
@@ -134,14 +138,17 @@ impl Transaction {
     }
 }
 
-/// A deposit transaction.
-///
-/// If the client account is not frozen, add funds to it.
+/// Represents an account state, as returned in the output.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub struct Account {
     /// Reference to the client owning this account
     pub client: ClientId,
+    /// Current balance of the account
     pub balance: AccountBalance,
+    /// Locked state of the account.
+    ///
+    /// If an account is locked, it should not be possible to update its
+    /// balance.
     pub locked: bool,
 }
 
@@ -291,6 +298,7 @@ impl Default for AccountBalance {
     }
 }
 
+/// Represents any of the commands a client can submit to the account service
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Command {
     Deposit(cmd::Deposit),
@@ -303,12 +311,20 @@ pub enum Command {
 pub mod cmd {
     use crate::core::{ClientId, TransactionId, TransactionMeta};
 
+    /// Increase the available assets of an account.
     #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct Deposit(pub TransactionMeta);
 
+    /// Decrease the available assets of an account.
+    ///
+    /// Requires the account to have enough available assets.
     #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct Withdrawal(pub TransactionMeta);
 
+    /// Signal that a previous transaction was erroneous.
+    ///
+    /// Only the account owner can file a dispute. The assets involved will
+    /// be frozen in a `held` state until the dispute is settled.
     #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct Dispute {
         /// Client claiming that a previous transaction was erroneous.
@@ -316,6 +332,9 @@ pub mod cmd {
         pub tx: TransactionId,
     }
 
+    /// Settle a dispute as resolve (the transaction was in fact valid)
+    ///
+    /// Restore the frozen assets.
     #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct Resolve {
         /// Client settling the dispute as resolved.
@@ -323,6 +342,9 @@ pub mod cmd {
         pub tx: TransactionId,
     }
 
+    /// Settle a dispute with a chargeback (cancel the disputed transaction)
+    ///
+    /// The transaction will be cancelled, but the account will be locked.
     #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct Chargeback {
         /// Client settling the dispute with chargeback.

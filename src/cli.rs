@@ -25,6 +25,33 @@ pub struct CliArgs {
     deny_withdrawal_dispute: bool,
 }
 
+/// This is the main entry point of the program
+///
+/// All the environment (except for the file system) is abstracted away so you
+/// can call the whole program as a regular function. This feature is used to
+/// run the tests and benchmarks.
+///
+/// # Example
+///
+/// ```
+/// use txdemo::cli::run;
+/// // `args` must always contain the program name
+/// let args = ["txdemo", "--sort"];
+/// let input = r#"type, client, tx, amount
+/// deposit, 1, 1, 1.0
+/// deposit, 2, 2, 2.0
+/// "#;
+/// let mut output = Vec::<u8>::new();
+/// let mut errors = Vec::<u8>::new();
+///
+/// let code = run(args, input.as_bytes(), &mut output, &mut errors);
+/// assert_eq!(code, 0);
+/// let expected = r#"client,available,held,total,locked
+/// 1,1.0000,0.0000,1.0000,false
+/// 2,2.0000,0.0000,2.0000,false
+/// "#;
+/// assert_eq!(std::str::from_utf8(output.as_slice()).unwrap(), expected);
+/// ```
 pub fn run<Args, Arg, Stdin, Stdout, Stderr>(
     args: Args,
     stdin: Stdin,
@@ -81,6 +108,7 @@ where
         }
     };
 
+    // Called once the args are validated and I/O is initialized
     fn with_io<Input: io::Read, Output: io::Write, ErrOutput: io::Write>(
         sort: bool,
         withdrawal_dispute_policy: WithdrawalDisputePolicy,
@@ -91,6 +119,7 @@ where
         let mut csv_reader = CsvCommandReader::from_reader(input);
         let mut csv_writer = CsvAccountWriter::from_writer(output);
         let mut account_service = MemAccountService::new(withdrawal_dispute_policy);
+        // Main loop: Read from the CSV file and submit the commands
         for row in csv_reader.commands() {
             let cmd = match row.record {
                 Ok(cmd) => cmd,
@@ -106,6 +135,7 @@ where
                 }
             };
         }
+        // Report the final state
         let accounts = account_service.get_all_accounts();
         csv_writer.write_headers()?;
         if sort {

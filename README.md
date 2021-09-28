@@ -38,7 +38,7 @@ $ cat accounts.csv
 client,available,held,total,locked
 1,10.0000,0.0000,10.0000,true
 ```
-s
+
 # Introduction
 
 Clients are automatically created with an empty account the first time they
