@@ -7,7 +7,7 @@ deposits and withdrawals (mark them as erroneous). While a transaction is disput
 until the dispute is settled with either a resolution (ignore the dispute) or a chargeback (cancel the disputed
 transaction).
 
-## Getting started
+# Getting started
 
 This is a regular Rust project. You can run it with:
 
@@ -34,7 +34,7 @@ $ cargo run -- transactions.csv > accounts.csv
 $ cat accounts.csv
 ```
 
-## Introduction
+# Introduction
 
 Clients are automatically created with an empty account the first time they
 are mentioned. Client accounts contain `available` and `held` assets.
@@ -47,7 +47,7 @@ resolutions, or chargebacks).
 To prevent abuses, both `available` and `held` client assets must always be
 positive (or zero). This invariant is checked by Rust's type system.
 
-## Commands
+# Commands
 
 This section documents the five supported commands:
 
@@ -57,12 +57,12 @@ This section documents the five supported commands:
 - `resolve`: Settle a dispute by cancelling the dispute: the assets are released back to the `available` state.
 - `chargeback`: Settle a dispute by reverting the transaction. The account is locked.
 
-### deposit
+## deposit
 
 If the client account is not locked, increase its `available` assets by
 the provided amount.
 
-#### Example
+### Example
 
 - Old state
 
@@ -85,12 +85,12 @@ the provided amount.
        1,        13,    1,    14, false
   ```
 
-### withdrawal
+## withdrawal
 
 If the client account is not locked and has sufficient availabl assets, decrease
 its `available` assets by the provided amount.
 
-#### Example
+### Example
 
 - Old state
 
@@ -113,7 +113,7 @@ its `available` assets by the provided amount.
        1,         7,    1,     8, false
   ```
 
-### dispute
+## dispute
 
 - **type**: `"dispute"`
 - **client**: `ClientId`, the client claiming that the transaction is erroneous
@@ -145,7 +145,7 @@ flag `--deny-withdrawal-dispute`:
   Safer for the bank as it is almost impossible to abuse, but it may hurt honest
   clients.
 
-#### Example - Dispute deposit
+### Example - Dispute deposit
 
 - Old state
 
@@ -169,7 +169,7 @@ flag `--deny-withdrawal-dispute`:
        1,        10,    4,    14, false
   ```
 
-#### Example - Dispute withdrawal
+### Example - Dispute withdrawal
 
 - Old state
 
@@ -193,12 +193,12 @@ flag `--deny-withdrawal-dispute`:
        1,         4,    4,     8, false
   ```
 
-### resolve
+## resolve
 
 Cancel a previous dispute and restore the corresponding held assets to the
 `available` state.
 
-### chargeback
+## chargeback
 
 Cancel the dispute transactions (refunding the account if needed).
 The account is immediately locked following a chargeback, allowing the bank
@@ -206,7 +206,7 @@ to further investigate the situation. If it turns out that this was a fraud,
 the account will still have the refunded assets so no abuse is possible
 this way.
 
-## Project management
+# Project management
 
 Besides `cargo run`, the following commands are relevant to this project.
 This repository is configured to run most checks in CI.
@@ -272,6 +272,62 @@ You can run the check yourself with:
 ```
 cargo audit
 ```
+
+# Correctness
+
+Two of the most invariants maintained by this crate are:
+- Both the `available` and `held` assets of an account must always be positive.
+- There should be exactly 4 digits of precision, without precision loss.
+
+These invariants are enforced by the type system so they can never be broken
+if the code contains a business logic error.
+
+This is solved by representing assets amount with a fixed-point decimal number.
+There are some existing libraries to handle such cases, but they were missing
+some guarantees I wanted so I wrote my own module. It lets me define the type
+`FixedDecimal<u64, 4>`: a fixed-point decimal number representing a `u64` amount
+of fractions each corresponding to `1-e4`. Using this type naturally prevents
+negative asset counts.
+
+An important aspect of my module is that it requires checked arithmetic and
+prevents rounding. It means that parsing an input value of `0.12345` is rejected
+because representing it would require rounding (and rounding requires more
+information). Enforced checked arithmetic means that a business logic error
+causing an underflow is impossible; for example subtracting more assets than
+available will not cause the balance to get really high.
+
+Apart from this, the code should be readable and commented enough to help spot
+mistakes.
+
+This project does not use any unsafe code itself, and relies on a small
+number of established dependencies.
+
+# Reliability
+
+This project tries its best to avoid panics and handle errors gracefully.
+In particular, it recovers from errors caused by invalid commands and continues
+to handle valid commands.
+
+This projects uses Github Actions as a CI service to check commits and prevent
+regressions. It also uses `rustfmt` and `clippy` to keep the code readable and
+prevent common mistakes.
+
+The project is extensively tested and has a high code coverage ratio. Rust's
+code coverage ecosystem is still immature but grcov reports at least 90%
+of code coverage (98% for the module containing the business logic).
+
+The tests are defined as directories in `./test-ressources`. Each test
+contains an input file, an expected output file and an optional `flags.txt` to
+run the program with extra flags. The program executed against the input file
+and the actual output and errors saved (so they can be easily reviewed). The
+test passes if the actual output exactly matches the expected output.
+Note that the tests enforce the `--sort` flag for determinism.
+
+# Performance
+
+The `FixedDecimal` type was written to be correct and flexible, performance was
+a secondary concern, in particular regarding parsing and formatting. This type
+can be optimized without much change to its API if it becomes a bottleneck.
 
 # License
 
