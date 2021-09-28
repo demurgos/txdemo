@@ -21,7 +21,7 @@ pub enum WithdrawalDisputePolicy {
 /// # Example
 ///
 /// ```
-/// use txdemo::account::mem::{MemAccountService, WithdrawalDisputePolicy};
+/// use txdemo::account_service::{MemAccountService, WithdrawalDisputePolicy};
 /// use txdemo::core::{cmd, ClientId, TransactionMeta, TransactionId, Account, AccountBalance, UnsignedAssetCount};
 ///
 /// let mut service = MemAccountService::default();
