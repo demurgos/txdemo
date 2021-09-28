@@ -1,4 +1,4 @@
-use crate::account::mem::{MemAccountService, WithdrawalDisputePolicy};
+use crate::account_service::{MemAccountService, WithdrawalDisputePolicy};
 use crate::core::{Account, ClientId};
 use crate::csv::{CsvAccountWriter, CsvCommandReader};
 use clap::Clap;

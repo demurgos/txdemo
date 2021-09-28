@@ -1,6 +1,4 @@
-pub mod fixed_decimal;
-
-use crate::core::fixed_decimal::FixedDecimal;
+use crate::fixed_decimal::FixedDecimal;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::str::FromStr;

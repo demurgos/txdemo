@@ -300,7 +300,7 @@ impl<T: Integer + CheckedSub> NegOne for T {
 
 #[cfg(test)]
 mod test {
-    use crate::core::fixed_decimal::{FixedDecimal, ParseFixedDecimalError};
+    use crate::fixed_decimal::{FixedDecimal, ParseFixedDecimalError};
     use std::str::FromStr;
 
     macro_rules! test_parse_i16_4 {
