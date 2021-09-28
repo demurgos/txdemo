@@ -231,7 +231,7 @@ impl<W: io::Write> CsvAccountWriter<W> {
     /// Write a header line.
     ///
     /// This must be called explicitly to support empty collections.
-    /// See https://github.com/BurntSushi/rust-csv/issues/161
+    /// See <https://github.com/BurntSushi/rust-csv/issues/161>
     pub fn write_headers(&mut self) -> csv::Result<()> {
         self.inner.write_record(std::array::IntoIter::new([
             "client",

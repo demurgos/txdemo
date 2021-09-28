@@ -1,5 +1,8 @@
 # TxDemo
 
+[![CI](https://github.com/demurgos/txdemo/actions/workflows/ci.yml/badge.svg)](https://github.com/demurgos/txdemo/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/demurgos/txdemo/branch/master/graph/badge.svg?token=d72vdAhvHq)](https://codecov.io/gh/demurgos/txdemo)
+
 _TxDemo_ is a small Rust CLI application showcasing a minimal transaction processing service.
 
 In this model, clients can deposit and withdraw assets from their unique account. It is also possible to dispute
