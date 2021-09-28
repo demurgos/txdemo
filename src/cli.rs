@@ -2,10 +2,12 @@ use crate::account::mem::{MemAccountService, WithdrawalDisputePolicy};
 use crate::core::{Account, ClientId};
 use crate::csv::{CsvAccountWriter, CsvCommandReader};
 use clap::Clap;
+use exitcode::ExitCode;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io;
 use std::path::PathBuf;
+use thiserror::private::AsDynError;
 
 /// Execute a stream of commands against an in-memory account service.
 #[derive(Debug, Clap)]
@@ -26,9 +28,9 @@ pub struct CliArgs {
 pub fn run<Args, Arg, Stdin, Stdout, Stderr>(
     args: Args,
     stdin: Stdin,
-    stdout: Stdout,
-    stderr: Stderr,
-) -> Result<(), Box<dyn std::error::Error>>
+    mut stdout: Stdout,
+    mut stderr: Stderr,
+) -> ExitCode
 where
     Args: IntoIterator<Item = Arg>,
     Arg: Into<OsString> + Clone,
@@ -36,18 +38,46 @@ where
     Stdout: io::Write,
     Stderr: io::Write,
 {
-    let args = CliArgs::try_parse_from(args)?;
+    let args = match CliArgs::try_parse_from(args) {
+        Ok(args) => args,
+        Err(e) => {
+            return if e.use_stderr() {
+                writeln!(&mut stderr, "{}", e).expect("failed to write to stderr");
+                exitcode::USAGE
+            } else {
+                writeln!(&mut stdout, "{}", e).expect("failed to write to stdout");
+                exitcode::OK
+            };
+        }
+    };
     let sort = args.sort;
     let withdrawal_dispute_policy = if args.deny_withdrawal_dispute {
         WithdrawalDisputePolicy::Deny
     } else {
         WithdrawalDisputePolicy::IfMoreAvailableThanDisputed
     };
-    return match args.input.as_deref() {
-        None => with_io(sort, withdrawal_dispute_policy, stdin, stdout, stderr),
+    let res = match args.input.as_deref() {
+        None => with_io(sort, withdrawal_dispute_policy, stdin, stdout, &mut stderr),
         Some(file) => {
-            let file = File::open(file).expect("FailedToOpenInputFile");
-            with_io(sort, withdrawal_dispute_policy, file, stdout, stderr)
+            let file = match File::open(file) {
+                Ok(file) => file,
+                Err(e) => {
+                    writeln!(&mut stderr, "Failed to read input file: {}", file.display())
+                        .expect("failed to write to stderr");
+                    print_error_chain(&e, &mut stderr);
+                    return exitcode::NOINPUT;
+                }
+            };
+            with_io(sort, withdrawal_dispute_policy, file, stdout, &mut stderr)
+        }
+    };
+
+    return match res {
+        Ok(()) => exitcode::OK,
+        Err(e) => {
+            writeln!(stderr, "Program failure:").expect("Failed to write to stderr");
+            print_error_chain(e.as_dyn_error(), &mut stderr);
+            1
         }
     };
 
@@ -57,7 +87,7 @@ where
         input: Input,
         output: Output,
         mut err_output: ErrOutput,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let mut csv_reader = CsvCommandReader::from_reader(input);
         let mut csv_writer = CsvAccountWriter::from_writer(output);
         let mut account_service = MemAccountService::new(withdrawal_dispute_policy);
@@ -101,7 +131,13 @@ where
             pos.line(),
         )
         .expect("failed to log error");
-        let mut e: &(dyn std::error::Error + 'static) = &error;
+        print_error_chain(&error, err_output);
+    }
+
+    fn print_error_chain<ErrOutput: io::Write>(
+        mut e: &(dyn std::error::Error + 'static),
+        err_output: &mut ErrOutput,
+    ) {
         loop {
             writeln!(err_output, "- {}", e).expect("failed to log error");
             if let Some(cause) = e.source() {
@@ -159,7 +195,8 @@ mod test {
             .open(errors_path.as_path())
             .expect("FailedToOpenErrorsFile");
 
-        run(args, stdio, stdout, stderr).expect("runShouldSucceed");
+        let code = run(args, stdio, stdout, stderr);
+        assert!(exitcode::is_success(code));
 
         let actual = fs::read_to_string(actual_path).expect("FailedToReadActualFile");
         let expected = fs::read_to_string(expected_path).expect("FailedToReadExpectedFile");

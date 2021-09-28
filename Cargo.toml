@@ -9,6 +9,7 @@ license = "AGPL-3.0-or-later"
 [dependencies]
 clap = "3.0.0-beta.4"
 csv = "1.1.6"
+exitcode = "1.1.2"
 num = "0.4.0"
 serde = { version = "1.0.130", features = ["derive"] }
 test-generator = "0.3.0"

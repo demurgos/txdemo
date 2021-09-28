@@ -44,7 +44,7 @@ impl BenchItem {
             .write(true)
             .open(self.output.as_path())
             .expect("FailedToOpenOutputFile");
-        drop(black_box(run(vec!["txdemo"], input, output, DevNull)));
+        black_box(run(vec!["txdemo"], input, output, DevNull));
     }
 }
 
