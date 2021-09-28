@@ -1,4 +1,4 @@
-mod fixed_decimal;
+pub mod fixed_decimal;
 
 use crate::core::fixed_decimal::FixedDecimal;
 use serde::{Deserialize, Serialize};
@@ -60,6 +60,10 @@ impl fmt::Display for TransactionId {
 pub struct UnsignedAssetCount(FixedDecimal<u64, 4>);
 
 impl UnsignedAssetCount {
+    pub fn new(x: FixedDecimal<u64, 4>) -> Self {
+        Self(x)
+    }
+
     pub fn checked_add(self, v: Self) -> Option<Self> {
         self.0.checked_add(&v.0).map(Self)
     }

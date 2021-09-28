@@ -22,20 +22,20 @@ pub enum WithdrawalDisputePolicy {
 ///
 /// ```
 /// use txdemo::account::mem::{MemAccountService, WithdrawalDisputePolicy};
-/// use txdemo::core::{cmd, ClientId, TransactionMeta, TransactionId, Account, AccountBalance};
+/// use txdemo::core::{cmd, ClientId, TransactionMeta, TransactionId, Account, AccountBalance, UnsignedAssetCount};
 ///
 /// let mut service = MemAccountService::default();
 ///
 /// service.submit_deposit(cmd::Deposit(TransactionMeta {
 ///     id: TransactionId::new(1),
 ///     client: ClientId::new(1),
-///     amount: "1.2345".parse().unwrap(),
+///     amount: UnsignedAssetCount::new("1.2345".parse().unwrap()),
 /// })).unwrap();
 ///
 /// service.submit_deposit(cmd::Deposit(TransactionMeta {
 ///     id: TransactionId::new(2),
 ///     client: ClientId::new(1),
-///     amount: "1.1111".parse().unwrap(),
+///     amount: UnsignedAssetCount::new("1.1111".parse().unwrap()),
 /// })).unwrap();
 ///
 /// // ... submit more commands

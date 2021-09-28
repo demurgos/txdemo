@@ -13,3 +13,17 @@ num = "0.4.0"
 serde = { version = "1.0.130", features = ["derive"] }
 test-generator = "0.3.0"
 thiserror = "1.0.29"
+
+[dev-dependencies]
+criterion = { version = "0.3.5", features = ["html_reports"] }
+
+# Force small optizations on `cargo run`
+[profile.dev]
+opt-level = 2
+
+[[bench]]
+name = "generated"
+harness = false
+
+[workspace]
+members = ["txgenerator"]

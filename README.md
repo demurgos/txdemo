@@ -26,14 +26,19 @@ Flags:
 
 **Example**:
 
-**TODO**
-
 ```
 $ cat transactions.csv
+type, client, tx, amount
+deposit, 1, 1, 10.0
+deposit, 1, 2, 4.0
+dispute, 1, 2,
+chargeback, 1, 2,
 $ cargo run -- transactions.csv > accounts.csv
 $ cat accounts.csv
+client,available,held,total,locked
+1,10.0000,0.0000,10.0000,true
 ```
-
+s
 # Introduction
 
 Clients are automatically created with an empty account the first time they
@@ -58,6 +63,11 @@ This section documents the five supported commands:
 - `chargeback`: Settle a dispute by reverting the transaction. The account is locked.
 
 ## deposit
+
+- **type**: `"deposit"`
+- **client**: `ClientId`, the client performing the deposit
+- **tx**: `TransactionId`, id of the transaction
+- **amount**: `UnsignedAssetCount`, value to deposit, with up to 4 decimal digits
 
 If the client account is not locked, increase its `available` assets by
 the provided amount.
@@ -86,6 +96,11 @@ the provided amount.
   ```
 
 ## withdrawal
+
+- **type**: `"withdrawal"`
+- **client**: `ClientId`, the client performing the withdrawal
+- **tx**: `TransactionId`, id of the transaction
+- **amount**: `UnsignedAssetCount`, value to withdraw, with up to 4 decimal digits
 
 If the client account is not locked and has sufficient availabl assets, decrease
 its `available` assets by the provided amount.
@@ -138,12 +153,13 @@ flag `--deny-withdrawal-dispute`:
   at least the same amount of assets available. This means that an account
   with `4.0` remaining available assets can dispute a `3.0` withdrawal but not
   a `5.0` withdrawal. This strategy means that a refund will never pay out more
-  than the available assets. If it turns out that this was a dispute trying to
-  scam the bank, we can seize the locked account and there will always be enough
-  assets to pay back the refund.
+  than the available assets (so it limits the risk for the bank).
 - `--deny-withdrawal-dispute`: Simply prevent any dispute regarding withdrawals.
   Safer for the bank as it is almost impossible to abuse, but it may hurt honest
   clients.
+
+In all cases, the account is locked after the chargeback. It allows the bank
+to further investigate the issue while the assets are still on the account.
 
 ### Example - Dispute deposit
 
@@ -195,10 +211,22 @@ flag `--deny-withdrawal-dispute`:
 
 ## resolve
 
+- **type**: `"resolve"`
+- **client**: `ClientId`, the client claiming that the dispute is resolved
+- **tx**: `TransactionId`, id of the disputed transaction
+- **amount**: empty
+
 Cancel a previous dispute and restore the corresponding held assets to the
 `available` state.
 
+Only the account owner can claim a dispute is resolved.
+
 ## chargeback
+
+- **type**: `"chargeback"`
+- **client**: `ClientId`, the client claiming that the disputed transaction should be cancelled
+- **tx**: `TransactionId`, id of the disputed transaction
+- **amount**: empty
 
 Cancel the dispute transactions (refunding the account if needed).
 The account is immediately locked following a chargeback, allowing the bank
@@ -273,6 +301,31 @@ You can run the check yourself with:
 cargo audit
 ```
 
+## Generate random test samples
+
+```
+cargo run --package txgenerator --release
+```
+
+The test samples will be located in `./generated`.
+
+## Benchmark
+
+First generate the random test samples with the command above, then run:
+
+```
+cargo bench
+```
+
+## Profile
+
+You can use [Flamegraph](https://github.com/flamegraph-rs/flamegraph) to profile
+the execution.
+
+```
+cargo flamegraph --bin txdemo -- ./generated/sample0/input.csv > /dev/null 2> /dev/null
+```
+
 # Correctness
 
 Two of the most invariants maintained by this crate are:
@@ -325,9 +378,23 @@ Note that the tests enforce the `--sort` flag for determinism.
 
 # Performance
 
-The `FixedDecimal` type was written to be correct and flexible, performance was
-a secondary concern, in particular regarding parsing and formatting. This type
-can be optimized without much change to its API if it becomes a bottleneck.
+Profiling the code reveals that most of the time is spent deserializing the
+CSV input. Only about 20% of the time is spent actually handling commands.
+
+This means that better performance can be obtained by changing the input format
+or the CSV parser, but the account service is performant enough.
+
+There are no special tricks: the code is single threaded a fairly simple.
+The memory requirements are proportional to the unique clients and unique
+transactions ids. The time to run should grow linearly with the size of the
+input.
+
+# Security
+
+The repo is configured to run security audits automatically. The number of
+dependencies is small and they either established or verified by myself.
+All the commits on this repository are signed and verified by GitHub to match
+my GPG key.
 
 # License
 

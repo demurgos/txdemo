@@ -1,3 +1,4 @@
 /target
 test-resources/*/actual.csv
 test-resources/*/errors.log
+generated/*/
