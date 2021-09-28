@@ -2,7 +2,6 @@ mod fixed_decimal;
 
 use crate::core::fixed_decimal::FixedDecimal;
 use serde::{Deserialize, Serialize};
-use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::str::FromStr;
 use thiserror::Error;
@@ -61,10 +60,6 @@ impl fmt::Display for TransactionId {
 pub struct UnsignedAssetCount(FixedDecimal<u64, 4>);
 
 impl UnsignedAssetCount {
-    pub fn to_signed(self) -> Result<SignedAssetCount, ToSignedCurrencyAmountError> {
-        self.try_into()
-    }
-
     pub fn checked_add(self, v: Self) -> Option<Self> {
         self.0.checked_add(&v.0).map(Self)
     }
@@ -85,71 +80,6 @@ impl FromStr for UnsignedAssetCount {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Self(s.parse().map_err(drop)?))
-    }
-}
-
-#[derive(
-    Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Default, Deserialize, Serialize,
-)]
-pub struct SignedAssetCount(FixedDecimal<i64, 4>);
-
-impl SignedAssetCount {
-    pub fn to_unsigned(self) -> Result<UnsignedAssetCount, ToUnsignedCurrencyAmountError> {
-        self.try_into()
-    }
-
-    pub fn checked_add(self, v: Self) -> Option<Self> {
-        self.0.checked_add(&v.0).map(Self)
-    }
-
-    pub fn checked_sub(self, v: Self) -> Option<Self> {
-        self.0.checked_sub(&v.0).map(Self)
-    }
-}
-
-impl fmt::Display for SignedAssetCount {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
-    }
-}
-
-impl FromStr for SignedAssetCount {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(s.parse().map_err(drop)?))
-    }
-}
-
-#[derive(Error, Debug, Eq, PartialEq)]
-#[error("conversion error, cannot represent {} as unsigned", .0)]
-pub struct ToUnsignedCurrencyAmountError(SignedAssetCount);
-
-impl TryFrom<SignedAssetCount> for UnsignedAssetCount {
-    type Error = ToUnsignedCurrencyAmountError;
-
-    fn try_from(value: SignedAssetCount) -> Result<Self, Self::Error> {
-        let fractions: i64 = *value.0.fractions();
-        let fractions: u64 = fractions
-            .try_into()
-            .map_err(|_| ToUnsignedCurrencyAmountError(value))?;
-        Ok(Self(FixedDecimal::from_fractions(fractions)))
-    }
-}
-
-#[derive(Error, Debug, Eq, PartialEq)]
-#[error("conversion error, cannot represent {} as signed", .0)]
-pub struct ToSignedCurrencyAmountError(UnsignedAssetCount);
-
-impl TryFrom<UnsignedAssetCount> for SignedAssetCount {
-    type Error = ToSignedCurrencyAmountError;
-
-    fn try_from(value: UnsignedAssetCount) -> Result<Self, Self::Error> {
-        let fractions: u64 = *value.0.fractions();
-        let fractions: i64 = fractions
-            .try_into()
-            .map_err(|_| ToSignedCurrencyAmountError(value))?;
-        Ok(Self(FixedDecimal::from_fractions(fractions)))
     }
 }
 
