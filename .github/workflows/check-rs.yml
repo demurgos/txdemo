@@ -7,12 +7,12 @@ on:
     branches: [ master ]
 
 jobs:
-  build:
+  check:
     runs-on: ubuntu-latest
 
     strategy:
       matrix:
-        rust-version: ["1.55.0"]
+        rust-version: ["1.55.0", "nightly"]
 
     steps:
       - uses: actions/checkout@v2
@@ -21,28 +21,37 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.rust-version }}
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools-preview
+          override: true
 
-      - name: Build and test
+      - if: ${{ matrix.rust-version != 'nightly'  }}
+        name: Build and test (without coverage)
         uses: actions-rs/cargo@v1
         with:
           command: test
 
-# Test coverage supported is temporarily disabled as Tarpaulin segfaults
-# on the latest commits.
-#
-#      - name: Build and test
-#        uses: actions-rs/tarpaulin@v0.1
-#        with:
-#          out-type: "lcov"
-#          args: "--count"
-#
-#      - name: Upload coverage report to codecov.io
-#        uses: codecov/codecov-action@v2
-#        with:
-#          # It's important to set this field otherwiser it will try to upload
-#          # our test resources.
-#          files: "./lcov.info"
+      - if: ${{ matrix.rust-version == 'nightly'  }}
+        name: Build and test (with coverage)
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+        env:
+          LLVM_PROFILE_FILE: "./target/debug/profile/%p-%m.profraw"
+          RUSTFLAGS: "-Zinstrument-coverage"
+
+      - if: ${{ matrix.rust-version == 'nightly'  }}
+        name: Install grcov
+        run: cargo install grcov
+
+      - if: ${{ matrix.rust-version == 'nightly'  }}
+        name: Build code coverage report
+        run: grcov ./target/debug/profile/ -s . --binary-path target/debug/ -t lcov --branch --ignore-not-existing -o lcov.info
+
+      - if: ${{ matrix.rust-version == 'nightly'  }}
+        name: Upload coverage report to codecov.io
+        uses: codecov/codecov-action@v2
+        with:
+          files: "./lcov.info"
 
       - name: Check code formatting
         uses: actions-rs/cargo@v1
