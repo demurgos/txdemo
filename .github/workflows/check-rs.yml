@@ -45,7 +45,7 @@ jobs:
 
       - if: ${{ matrix.rust-version == 'nightly'  }}
         name: Build code coverage report
-        run: grcov ./target/debug/profile/ -s . --binary-path target/debug/ -t lcov --branch --ignore-not-existing -o lcov.info
+        run: grcov ./target/debug/profile/ -s . --binary-path target/debug/ -t lcov --branch --ignore-not-existing --keep-only "src/**" -o lcov.info
 
       - if: ${{ matrix.rust-version == 'nightly'  }}
         name: Upload coverage report to codecov.io

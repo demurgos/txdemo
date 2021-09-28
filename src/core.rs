@@ -352,3 +352,20 @@ pub mod cmd {
         pub tx: TransactionId,
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::{AccountBalance, UnsignedAssetCount};
+    use crate::fixed_decimal::FixedDecimal;
+
+    #[test]
+    fn default_balance_is_empty() {
+        let actual = AccountBalance::default();
+        let expected = AccountBalance::new_with(
+            UnsignedAssetCount::new(FixedDecimal::from_fractions(0)),
+            UnsignedAssetCount::new(FixedDecimal::from_fractions(0)),
+        )
+        .unwrap();
+        assert_eq!(actual, expected);
+    }
+}

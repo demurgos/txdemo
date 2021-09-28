@@ -264,7 +264,7 @@ rustup run nightly cargo build
 rm -rf target/debug/profile/
 mkdir -p target/debug/profile/
 LLVM_PROFILE_FILE="target/debug/profile/%p-%m.profraw" RUSTFLAGS="-Zinstrument-coverage" rustup run nightly cargo test
-rustup run nightly grcov ./target/debug/profile/ -s . --binary-path ./target/debug/ -t html --branch --ignore-not-existing -o ./target/debug/coverage/
+rustup run nightly grcov ./target/debug/profile/ -s . --binary-path target/debug/ -t lcov --branch --ignore-not-existing --keep-only "src/**" -o lcov.info
 ```
 
 The report will be in `./target/debug/coverage/`.
